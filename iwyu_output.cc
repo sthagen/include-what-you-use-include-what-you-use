@@ -348,20 +348,6 @@ string PrintablePtr(const void* ptr) {
 //       `-- TagDecl           (class, struct, union, enum)
 //           `-- RecordDecl    (class, struct, union)
 
-// Determines if a NamedDecl has any parent namespace, which is anonymous.
-bool HasAnonymousNamespace(const NamedDecl* decl) {
-  for (const DeclContext* ctx = decl->getDeclContext();
-       ctx && isa<NamedDecl>(ctx); ctx = ctx->getParent()) {
-    if (const NamespaceDecl* ns = DynCastFrom(ctx)) {
-      if (ns->isAnonymousNamespace()) {
-        return true;
-      }
-    }
-  }
-
-  return false;
-}
-
 // Given a NamedDecl that presents a (possibly template) record
 // (i.e. class, struct, or union) type declaration, and the print-out
 // of its (possible) template parameters and kind (e.g. "template
@@ -380,7 +366,7 @@ string PrintForwardDeclare(const NamedDecl* decl,
   std::string fwd_decl = std::string(decl->getName()) + ";";
   bool seen_namespace = false;
   // Anonymous namespaces are not using the more concise syntax.
-  bool concat_namespaces = cxx17ns && !HasAnonymousNamespace(decl);
+  bool concat_namespaces = cxx17ns && !decl->isInAnonymousNamespace();
   for (const DeclContext* ctx = decl->getDeclContext();
        ctx && isa<NamedDecl>(ctx); ctx = ctx->getParent()) {
     if (const RecordDecl* rec = DynCastFrom(ctx)) {
@@ -729,18 +715,34 @@ static void LogIncludeMapping(const string& reason, const OneUse& use) {
 
 namespace internal {
 
-bool DeclCanBeForwardDeclared(const Decl* decl) {
-  // Class templates can always be forward-declared.
-  if (isa<ClassTemplateDecl>(decl))
-    return true;
-
-  // Other record decls can be forward-declared unless they denote a lambda
-  // expression; these have no type name to forward-declare.
-  if (const RecordDecl* record = DynCastFrom(decl)) {
-    return !record->isLambda();
+bool DeclCanBeForwardDeclared(const Decl* decl, string* reason) {
+  // Nothing inside an inline namespace can be forward-declared.
+  if (IsInInlineNamespace(decl)) {
+    *reason = "in inline namespace";
+    return false;
   }
 
-  return false;
+  if (isa<ClassTemplateDecl>(decl)) {
+    // Class templates can always be forward-declared.
+  } else if (const auto* record = dyn_cast<RecordDecl>(decl)) {
+    // Record decls can be forward-declared unless they denote a lambda
+    // expression; these have no type name to forward-declare.
+    if (record->isLambda()) {
+      *reason = "is a lambda";
+      return false;
+    }
+  } else {
+    // Other decl types are not forward-declarable.
+    *reason = "not a record or class template";
+    return false;
+  }
+
+  return true;
+}
+
+bool DeclCanBeForwardDeclared(const Decl* decl) {
+  string reason;
+  return DeclCanBeForwardDeclared(decl, &reason);
 }
 
 // Helper to tell whether a forward-declare use is 'preceded' by a
@@ -1021,11 +1023,12 @@ void ProcessForwardDeclare(OneUse* use,
   if (use->ignore_use())   // we're already ignoring it
     return;
 
-  // (A1) If not a class or a templated class, recategorize as a full use.
-  if (!DeclCanBeForwardDeclared(use->decl())) {
+  // (A1) If not suitable for forward-declaration, recategorize as a full use.
+  string reason;
+  if (!DeclCanBeForwardDeclared(use->decl(), &reason)) {
     VERRS(6) << "Moving " << use->symbol_name()
-             << " from fwd-decl use to full use: not a class"
-             << " (" << use->PrintableUseLoc() << ")\n";
+             << " from fwd-decl use to full use: " << reason << " ("
+             << use->PrintableUseLoc() << ")\n";
     use->set_full_use();
     return;
   }
