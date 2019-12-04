@@ -62,6 +62,8 @@ Every source file must have a license header on the form:
 
 (With the corresponding comment prefix/suffix for other languages.)
 
+There is a utility script, `iwyu-check-license-header.py` that can be used to
+automatically add a license header with the right filename to a new source file.
 
 ## C++ ##
 
@@ -83,7 +85,7 @@ IWYU has a `.clang-format` file, so everything should play out nicely if you use
 clang-format on your edited lines. PLEASE do not reformat more than lines you
 touch, especially not whole files. The git-clang-format tool can help with this.
 
-We observe a few [LLVM-inspired rules][1] for IWYU:
+We observe a few [LLVM-inspired rules][2] for IWYU:
 
 * **Use 'auto' sparingly** -- we don't subscribe to the "Almost always auto"
 guideline in IWYU. In line with LLVM tradition we use `auto` when it improves
