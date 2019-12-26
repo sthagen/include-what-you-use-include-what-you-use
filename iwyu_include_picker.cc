@@ -16,7 +16,6 @@
 // not hash_map: it's not as portable and needs hash<string>.
 #include <map>                          // for map, map<>::mapped_type, etc
 #include <memory>
-#include <ostream>
 #include <string>                       // for string, basic_string, etc
 #include <system_error>                 // for error_code
 #include <utility>                      // for pair, make_pair
@@ -24,10 +23,10 @@
 
 #include "iwyu_location_util.h"
 #include "iwyu_path_util.h"
+#include "iwyu_port.h"
 #include "iwyu_stl_util.h"
 #include "iwyu_string_util.h"
 #include "iwyu_verrs.h"
-#include "port.h"  // for CHECK_
 
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Casting.h"
@@ -37,7 +36,6 @@
 #include "llvm/Support/Regex.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/YAMLParser.h"
-#include "llvm/Support/raw_ostream.h"
 #include "clang/Basic/FileManager.h"
 
 using std::find;
@@ -50,7 +48,6 @@ using std::vector;
 
 using llvm::MemoryBuffer;
 using llvm::SourceMgr;
-using llvm::errs;
 using llvm::yaml::KeyValueNode;
 using llvm::yaml::MappingNode;
 using llvm::yaml::Node;
@@ -1477,8 +1474,8 @@ void IncludePicker::AddMappingsFromFile(const string& filename,
   llvm::ErrorOr<unique_ptr<MemoryBuffer>> bufferOrError =
       MemoryBuffer::getFile(absolute_path);
   if (std::error_code error = bufferOrError.getError()) {
-    errs() << "Cannot open mapping file '" << absolute_path << "': "
-           << error.message() << ".\n";
+    VERRS(0) << "Cannot open mapping file '" << absolute_path
+             << "': " << error.message() << ".\n";
     return;
   }
 
