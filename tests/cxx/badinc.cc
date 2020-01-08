@@ -1751,7 +1751,6 @@ int main() {
   // IWYU: std::vector<.*>::const_iterator is...*<vector>
   const std::vector<float>::const_iterator float_constit = float_vector.begin();
   // IWYU: std::vector is...*<vector>
-  // IWYU: std::vector<.*>::const_iterator is...*<vector>
   (void)(float_it == float_constit);
   // IWYU: std::vector is...*<vector>
   // IWYU: std::vector<.*>::const_iterator is...*<vector>
@@ -1776,7 +1775,6 @@ int main() {
            // IWYU: std::vector is...*<vector>
            float_reverse_it = float_vector.rbegin();
        // IWYU: std::vector is...*<vector>
-       // IWYU: std::vector<.*>::reverse_iterator is...*<vector>
        float_reverse_it != float_vector.rbegin();
        // IWYU: std::vector is...*<vector>
        // IWYU: std::vector<.*>::reverse_iterator is...*<vector>
@@ -1790,7 +1788,6 @@ int main() {
            // IWYU: std::vector is...*<vector>
            float_const_reverse_it = float_vector.rbegin();
        // IWYU: std::vector is...*<vector>
-       // IWYU: std::vector<.*>::const_reverse_iterator is...*<vector>
        float_const_reverse_it != float_vector.rend();
        // IWYU: std::vector is...*<vector>
        // IWYU: std::vector<.*>::const_reverse_iterator is...*<vector>
@@ -1864,10 +1861,6 @@ int main() {
   I1_TemplateFunction<I1_Class*>(i1_class_ptr);
   // Try again, but with a typedef
   Cc_typedef cc_typedef;
-  // TODO(csilvers): figure out the template arg here is really a
-  //    typedef (tricky because we need to call the I1_Class ctor),
-  //    and don't add it to tpl-types-of-interest.
-  // IWYU: I1_Class is...*badinc-i1.h
   // IWYU: I1_TemplateFunction is...*badinc-i1.h
   I1_TemplateFunction(cc_typedef);
   // IWYU: I1_TemplateFunction is...*badinc-i1.h
