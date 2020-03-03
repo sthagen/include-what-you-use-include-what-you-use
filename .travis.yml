@@ -12,33 +12,31 @@ addons:
      # TODO: These should really be the snapshots packages, but they are currently
      # broken. Remove the version suffix once they get fixed (see issue #642 for
      # more info)
-     - llvm-10-dev
-     - llvm-10-tools
-     - libclang-10-dev
-     - clang-10
+     - llvm-11-dev
+     - llvm-11-tools
+     - libclang-11-dev
+     - clang-11
 
 before_install:
  # Install a supported cmake version (>= 3.4.3)
- - wget -O cmake.sh https://cmake.org/files/v3.10/cmake-3.10.0-Linux-x86_64.sh 
+ - wget -O cmake.sh https://cmake.org/files/v3.16/cmake-3.16.4-Linux-x86_64.sh
  - sudo sh cmake.sh --skip-license --exclude-subdir --prefix=/usr/local
 
  # Extract the version number from the most-recently installed LLVM
  - VERSION=`ls -t /usr/lib/ | grep '^llvm-' | head -n 1 | sed -E 's/llvm-(.+)/\1/'`
 
  # Absolute paths to LLVM's root and bin directory
- - ROOT_PATH=`llvm-config-$VERSION --prefix`
+ - PREFIX_PATH=`llvm-config-$VERSION --prefix`
  - BIN_PATH=`llvm-config-$VERSION --bindir`
 
  # TODO: Remove these hacky fixups
- - (cd $ROOT_PATH/lib && sudo ln -rsf libclang-cpp.so.1 libclang-cpp-$VERSION.so.1)
- - sudo touch $ROOT_PATH/lib/libExampleIRTransforms.a
- - sudo touch $ROOT_PATH/lib/libBye.a
+ - (cd $PREFIX_PATH/lib && sudo ln -rsf libclang-cpp.so.1 libclang-cpp-$VERSION.so.1)
 
 script:
 # Build IWYU
  - mkdir build
  - cd build
- - cmake -GNinja -DCMAKE_PREFIX_PATH=$ROOT_PATH -DCMAKE_C_COMPILER=$BIN_PATH/clang -DCMAKE_CXX_COMPILER=$BIN_PATH/clang++ -DCMAKE_INSTALL_PREFIX=./ ../
+ - cmake -GNinja -DCMAKE_PREFIX_PATH=$PREFIX_PATH -DCMAKE_C_COMPILER=$BIN_PATH/clang -DCMAKE_CXX_COMPILER=$BIN_PATH/clang++ -DCMAKE_INSTALL_PREFIX=./ ../
  - ninja
 
 # Test IWYU
