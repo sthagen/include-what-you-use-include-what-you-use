@@ -584,8 +584,8 @@ void IwyuFileInfo::AddUsingDecl(const UsingDecl* using_decl) {
   int start_linenum = GetLineNumber(GetInstantiationLoc(decl_lines.getBegin()));
   int end_linenum = GetLineNumber(GetInstantiationLoc(decl_lines.getEnd()));
   VERRS(6) << "Found using-decl: "
-           << GetFilePath(file_) << ":" 
-           << to_string(start_linenum) << "-" << to_string(end_linenum) << ": " 
+           << GetFilePath(file_) << ":"
+           << to_string(start_linenum) << "-" << to_string(end_linenum) << ": "
            << internal::PrintablePtr(using_decl)
            << internal::GetQualifiedNameAsString(using_decl) << "\n";
 }
@@ -678,7 +678,7 @@ void IwyuFileInfo::ReportForwardDeclareUse(SourceLocation use_loc,
 void IwyuFileInfo::ReportUsingDeclUse(SourceLocation use_loc,
                                       const UsingDecl* using_decl,
                                       UseFlags flags,
-                                      const char* comment) {  
+                                      const char* comment) {
   // If accessing a symbol through a using decl in the same file that contains
   // the using decl, we must mark the using decl as referenced. At the end of
   // traversing the AST, we check to see if a using decl is unreferenced and
@@ -1393,14 +1393,10 @@ void CalculateIwyuForForwardDeclareUse(
 
   // If this record is defined in one of the desired_includes, mark that
   // fact.  Also if it's defined in one of the actual_includes.
-  const NamedDecl* dfn = GetDefinitionForClass(use->decl());
-  // If we are, ourselves, a template specialization, then the definition
-  // we use is not the definition of the specialization (that's us), but
-  // the definition of the template we're specializing.
-  if (spec_decl && dfn == spec_decl)
-    dfn = GetDefinitionForClass(spec_decl->getSpecializedTemplate());
   bool dfn_is_in_desired_includes = false;
   bool dfn_is_in_actual_includes = false;
+
+  const NamedDecl* dfn = GetDefinitionForClass(use->decl());
   if (dfn) {
     vector<string> headers
       = GlobalIncludePicker().GetCandidateHeadersForFilepathIncludedFrom(
