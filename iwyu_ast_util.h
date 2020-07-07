@@ -376,6 +376,11 @@ class CurrentASTNodeUpdater {
 // uses ElaboratedType for namespaces ('ns::Foo myvar').
 bool IsElaborationNode(const ASTNode* ast_node);
 
+// Walk up to parents of the given node so long as each parent is an
+// elaboration node (in the sense of IsElaborationNode).
+// Can expand from a node representing 'X' to e.g. 'struct X' or 'mylib::X'.
+const ASTNode* MostElaboratedAncestor(const ASTNode* ast_node);
+
 // See if a given ast_node is a qualified name part of an ElaboratedType
 // node (e.g. 'class ns::Foo x', 'class ::Global x' or 'class Outer::Inner x'.)
 bool IsQualifiedNameNode(const ASTNode* ast_node);
@@ -693,6 +698,11 @@ bool IsClassType(const clang::Type* type);
 // if we are parsing a template instantiated with T being int.
 // However, vector<T> is *not* converted to vector<int>.
 const clang::Type* RemoveSubstTemplateTypeParm(const clang::Type* type);
+
+// Returns true if any type involved (recursively examining template
+// arguments) satisfies the given predicate.
+bool InvolvesTypeForWhich(const clang::Type* type,
+                          std::function<bool(const clang::Type*)> pred);
 
 // Returns true if type is a pointer type (pointer or reference,
 // looking through elaborations like 'class Foo*' (vs 'Foo*'),
