@@ -26,6 +26,10 @@ endif()
 
 message(STATUS "IWYU: configuring for LLVM ${LLVM_VERSION}...")
 
+# The good default is given by the llvm toolchain installation itself, but still in
+# case both static and shared libraries are available, allow to override that default.
+option(IWYU_LINK_CLANG_DYLIB "Link against the clang dynamic library" ${CLANG_LINK_CLANG_DYLIB})
+
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
 add_definitions(${LLVM_DEFINITIONS})
@@ -64,7 +68,7 @@ if (NOT IWYU_IN_TREE)
   # Use only major.minor.patch for the resource directory structure; some
   # platforms include suffix in LLVM_VERSION.
   set(llvm_ver ${LLVM_VERSION_MAJOR}.${LLVM_VERSION_MINOR}.${LLVM_VERSION_PATCH})
-  set(clang_headers_src "${LLVM_INSTALL_PREFIX}/lib/clang/${llvm_ver}/include")
+  set(clang_headers_src "${LLVM_LIBRARY_DIR}/clang/${llvm_ver}/include")
   set(clang_headers_dst "${CMAKE_BINARY_DIR}/lib/clang/${llvm_ver}/include")
 
   file(GLOB_RECURSE in_files RELATIVE "${clang_headers_src}"
@@ -105,8 +109,8 @@ if (MSVC)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /bigobj /EHsc")
 endif()
 
-# If only clang-cpp is available, we take that.
-if (TARGET clang-cpp AND NOT TARGET clangBasic)
+# Link dynamically or statically depending on user preference.
+if (IWYU_LINK_CLANG_DYLIB)
   target_link_libraries(include-what-you-use PRIVATE clang-cpp)
 else()
   target_link_libraries(include-what-you-use

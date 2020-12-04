@@ -153,7 +153,6 @@ using clang::ASTFrontendAction;
 using clang::Attr;
 using clang::CXXConstructExpr;
 using clang::CXXConstructorDecl;
-using clang::CXXCtorInitializer;
 using clang::CXXDeleteExpr;
 using clang::CXXDestructorDecl;
 using clang::CXXMethodDecl;
@@ -168,7 +167,6 @@ using clang::ConstructorUsingShadowDecl;
 using clang::Decl;
 using clang::DeclContext;
 using clang::DeclRefExpr;
-using clang::ElaboratedType;
 using clang::EnumType;
 using clang::Expr;
 using clang::FileEntry;
@@ -178,7 +176,6 @@ using clang::FunctionDecl;
 using clang::FunctionProtoType;
 using clang::FunctionTemplateDecl;
 using clang::FunctionType;
-using clang::ImplicitCastExpr;
 using clang::LValueReferenceType;
 using clang::LinkageSpecDecl;
 using clang::MemberExpr;
@@ -1979,6 +1976,8 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
       case clang::CK_BooleanToSignedIntegral:
       case clang::CK_FixedPointCast:
       case clang::CK_FixedPointToBoolean:
+      case clang::CK_FixedPointToFloating:
+      case clang::CK_FixedPointToIntegral:
       case clang::CK_FloatingCast:
       case clang::CK_FloatingComplexCast:
       case clang::CK_FloatingComplexToBoolean:
@@ -1986,6 +1985,7 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
       case clang::CK_FloatingComplexToReal:
       case clang::CK_FloatingRealToComplex:
       case clang::CK_FloatingToBoolean:
+      case clang::CK_FloatingToFixedPoint:
       case clang::CK_FloatingToIntegral:
       case clang::CK_FunctionToPointerDecay:
       case clang::CK_IntegralCast:
@@ -1995,6 +1995,7 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
       case clang::CK_IntegralComplexToReal:
       case clang::CK_IntegralRealToComplex:
       case clang::CK_IntegralToBoolean:
+      case clang::CK_IntegralToFixedPoint:
       case clang::CK_IntegralToFloating:
       case clang::CK_IntegralToPointer:
       case clang::CK_MemberPointerToBoolean:
@@ -2023,6 +2024,7 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
       // Kinds for reinterpret_cast and const_cast, which need no full types.
       case clang::CK_BitCast:                // used for reinterpret_cast
       case clang::CK_LValueBitCast:          // used for reinterpret_cast
+      case clang::CK_LValueToRValueBitCast:  // used for reinterpret_cast
       case clang::CK_NoOp:                   // used for const_cast, etc
         break;
 
