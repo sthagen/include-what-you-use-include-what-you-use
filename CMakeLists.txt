@@ -38,30 +38,6 @@ include_directories(
   ${CLANG_INCLUDE_DIRS}
   )
 
-set(LLVM_LINK_COMPONENTS
-  Option
-  Support
-  X86AsmParser
-  X86Desc
-  X86Info
-  )
-
-add_llvm_executable(include-what-you-use
-  iwyu.cc
-  iwyu_ast_util.cc
-  iwyu_cache.cc
-  iwyu_driver.cc
-  iwyu_getopt.cc
-  iwyu_globals.cc
-  iwyu_include_picker.cc
-  iwyu_lexer_utils.cc
-  iwyu_location_util.cc
-  iwyu_output.cc
-  iwyu_path_util.cc
-  iwyu_preprocessor.cc
-  iwyu_verrs.cc
-  )
-
 # Synthesize a clang-resource-headers target for out-of-tree builds (in-tree
 # already has it available by default)
 if (NOT IWYU_IN_TREE)
@@ -89,9 +65,38 @@ if (NOT IWYU_IN_TREE)
   add_custom_target(clang-resource-headers ALL DEPENDS ${out_files})
 endif()
 
+set(LLVM_LINK_COMPONENTS
+  Option
+  Support
+  X86AsmParser
+  X86Desc
+  X86Info
+  )
+
+add_llvm_executable(include-what-you-use
+  iwyu.cc
+  iwyu_ast_util.cc
+  iwyu_cache.cc
+  iwyu_driver.cc
+  iwyu_getopt.cc
+  iwyu_globals.cc
+  iwyu_include_picker.cc
+  iwyu_lexer_utils.cc
+  iwyu_location_util.cc
+  iwyu_output.cc
+  iwyu_path_util.cc
+  iwyu_preprocessor.cc
+  iwyu_verrs.cc
+  )
+
 # Add a dependency on clang-resource-headers to ensure the builtin headers are
 # available when IWYU is executed from the build dir.
 add_dependencies(include-what-you-use clang-resource-headers)
+
+# LLVM requires C++14, so follow suit.
+set_property(TARGET include-what-you-use PROPERTY CXX_STANDARD_REQUIRED ON)
+set_property(TARGET include-what-you-use PROPERTY CXX_STANDARD 14)
+set_property(TARGET include-what-you-use PROPERTY CXX_EXTENSIONS OFF)
 
 if (MINGW)
   # Work around 'too many sections' error with MINGW/GCC
