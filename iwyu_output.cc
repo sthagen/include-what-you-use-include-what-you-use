@@ -302,9 +302,9 @@ void OneUse::SetPublicHeaders() {
       symbol_name_, use_path);
   if (public_headers_.empty())
     public_headers_ = picker.GetCandidateHeadersForFilepathIncludedFrom(
-        decl_filepath_, use_path);
+        decl_filepath(), use_path);
   if (public_headers_.empty())
-    public_headers_.push_back(ConvertToQuotedInclude(decl_filepath_));
+    public_headers_.push_back(ConvertToQuotedInclude(decl_filepath()));
 }
 
 const vector<string>& OneUse::public_headers() {
@@ -631,9 +631,10 @@ void IwyuFileInfo::ReportFullSymbolUse(SourceLocation use_loc,
 }
 
 void IwyuFileInfo::ReportFullSymbolUse(SourceLocation use_loc,
-                                       const string& dfn_filepath,
+                                       const FileEntry* dfn_file,
                                        const string& symbol) {
-  symbol_uses_.push_back(OneUse(symbol, nullptr, dfn_filepath, use_loc));
+  symbol_uses_.push_back(OneUse(symbol, dfn_file, 
+                                GetFilePath(dfn_file), use_loc));
   LogSymbolUse("Marked full-info use of symbol", symbol_uses_.back());
 }
 
@@ -1160,7 +1161,7 @@ void ProcessFullUse(OneUse* use,
   // We normally ignore uses for builtins, but when there is a mapping defined
   // for the symbol, we should respect that.  So, we need to determine whether
   // the symbol has any mappings.
-  bool is_builtin_function = IsBuiltinFunction(use->decl(), use->symbol_name());
+  bool is_builtin_function = IsBuiltinFunction(use->decl());
 
   bool is_builtin_function_with_mappings =
       is_builtin_function && HasMapping(use->symbol_name());
