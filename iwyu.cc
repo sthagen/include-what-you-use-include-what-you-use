@@ -167,6 +167,7 @@ using clang::ConstructorUsingShadowDecl;
 using clang::Decl;
 using clang::DeclContext;
 using clang::DeclRefExpr;
+using clang::DeducedTemplateSpecializationType;
 using clang::EnumType;
 using clang::Expr;
 using clang::FileEntry;
@@ -1259,7 +1260,26 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
     for (const NamedDecl* redecl : GetClassRedecls(decl)) {
       if (GetFileEntry(redecl) == macro_def_file && IsForwardDecl(redecl)) {
         fwd_decl = redecl;
+        break;
+      }
+    }
 
+    if (!fwd_decl) {
+      if (const auto* func_decl = dyn_cast<FunctionDecl>(decl)) {
+        if (const FunctionTemplateDecl* ft_decl =
+            func_decl->getPrimaryTemplate()) {
+          VERRS(5) << "No fwd-decl found, looking for function template decl\n";
+          for (const NamedDecl* redecl : ft_decl->redecls()) {
+            if (GetFileEntry(redecl) == macro_def_file) {
+              fwd_decl = redecl;
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    if (fwd_decl) {
         // Make sure we keep that forward-declaration, even if it's probably
         // unused in this file.
         IwyuFileInfo* file_info =
@@ -1267,8 +1287,6 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
         file_info->ReportForwardDeclareUse(
             spelling_loc, fwd_decl,
             ComputeUseFlags(current_ast_node()), nullptr);
-        break;
-      }
     }
 
     // Resolve the best use location based on our current knowledge.
@@ -4073,18 +4091,21 @@ class IwyuAstConsumer
   bool VisitTemplateName(TemplateName template_name) {
     if (CanIgnoreCurrentASTNode())  return true;
     if (!Base::VisitTemplateName(template_name))  return false;
-    // The only time we can see a TemplateName not in the
-    // context of a TemplateSpecializationType is when it's
-    // the default argument of a template template arg:
+    // We can see TemplateName not in the context of aTemplateSpecializationType
+    // when it's either the default argument of a template template arg:
     //    template<template<class T> class A = TplNameWithoutTST> class Foo ...
-    // So that's the only case we need to handle here.
+    // or a deduced template specialization:
+    //    std::pair x(10, 20); // type of x is really std::pair<int, int>
+    // So that's the only cases we need to handle here.
     // TODO(csilvers): check if this is really forward-declarable or
     // not.  You *could* do something like: 'template<template<class
     // T> class A = Foo> class C { A<int>* x; };' and never
     // dereference x, but that's pretty unlikely.  So for now, we just
     // assume these default template template args always need full
     // type info.
-    if (IsDefaultTemplateTemplateArg(current_ast_node())) {
+    const ASTNode* ast_node = current_ast_node();
+    if (ast_node->ParentIsA<DeducedTemplateSpecializationType>() ||
+        IsDefaultTemplateTemplateArg(ast_node)) {
       current_ast_node()->set_in_forward_declare_context(false);
       ReportDeclUse(CurrentLoc(), template_name.getAsTemplateDecl());
     }
@@ -4150,7 +4171,6 @@ class IwyuAction : public ASTFrontendAction {
 
 #include "iwyu_driver.h"
 #include "clang/Frontend/FrontendAction.h"
-#include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/TargetSelect.h"
 
 using include_what_you_use::OptionsParser;
@@ -4158,12 +4178,11 @@ using include_what_you_use::IwyuAction;
 using include_what_you_use::CreateCompilerInstance;
 
 int main(int argc, char **argv) {
-  // Must initialize X86 target to be able to parse Microsoft inline
-  // assembly. We do this unconditionally, because it allows an IWYU
-  // built for non-X86 targets to parse MS inline asm without choking.
-  LLVMInitializeX86TargetInfo();
-  LLVMInitializeX86TargetMC();
-  LLVMInitializeX86AsmParser();
+  // X86 target is required to parse Microsoft inline assembly, so we hope it's
+  // part of all targets. Clang parser will complain otherwise.
+  llvm::InitializeAllTargetInfos();
+  llvm::InitializeAllTargetMCs();
+  llvm::InitializeAllAsmParsers();
 
   // The command line should look like
   //   path/to/iwyu -Xiwyu --verbose=4 [-Xiwyu --other_iwyu_flag]... CLANG_FLAGS... foo.cc
