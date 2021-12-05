@@ -41,6 +41,7 @@ We assume you already have compiled LLVM and Clang libraries on your system, eit
 | 10    | 0.14         | `clang_10`     |
 | 11    | 0.15         | `clang_11`     |
 | 12    | 0.16         | `clang_12`     |
+| 13    | 0.17         | `clang_13`     |
 | ...   | ...          | ...            |
 | main  |              | `master`       |
 
@@ -130,12 +131,16 @@ The `CMAKE_CXX_INCLUDE_WHAT_YOU_USE` option enables a mode where CMake first com
 Use it like this:
 
       mkdir build && cd build
-      CC="clang" CXX="clang++" cmake -DCMAKE_CXX_INCLUDE_WHAT_YOU_USE="path/to/iwyu;-Xiwyu;any;-Xiwyu;iwyu;-Xiwyu;args" ...
+      CC="clang" CXX="clang++" cmake -DCMAKE_CXX_INCLUDE_WHAT_YOU_USE=include-what-you-use ...
 
 or, on Windows systems:
 
       mkdir build && cd build
-      cmake -DCMAKE_CXX_COMPILER="%VCINSTALLDIR%/bin/cl.exe" -DCMAKE_CXX_INCLUDE_WHAT_YOU_USE="path/to/iwyu;-Xiwyu;any;-Xiwyu;iwyu;-Xiwyu;args" -G Ninja ...
+      cmake -DCMAKE_CXX_COMPILER="%VCINSTALLDIR%/bin/cl.exe" -DCMAKE_CXX_INCLUDE_WHAT_YOU_USE=include-what-you-use -G Ninja ...
+
+These examples assume that `include-what-you-use` is in the `PATH`. If it isn't, consider changing the value to an absolute path. Arguments to IWYU can be added using CMake's semicolon-separated list syntax, e.g.:
+
+      ... cmake -DCMAKE_CXX_INCLUDE_WHAT_YOU_USE="include-what-you-use;-w;-Xiwyu;--verbose=7" ...
 
 The option appears to be separately supported for both C and C++, so use `CMAKE_C_INCLUDE_WHAT_YOU_USE` for C code.
 
