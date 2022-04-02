@@ -1345,6 +1345,15 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
     if (decl == nullptr)   // only class-types are candidates for returning true
       return false;
 
+    // Sometimes a type points back to an implicit decl (e.g. a bultin type),
+    // and we can't do author-intent analysis without location information.
+    // Assume that it's not forward-declarable.
+    if (decl->isImplicit()) {
+      VERRS(5) << "Skipping forward-declare analysis for implicit decl: '"
+               << PrintableDecl(decl) << "'\n";
+      return false;
+    }
+
     // If we're a template specialization, we also accept
     // forward-declarations of the underlying template (vector<T>, not
     // vector<int>).
@@ -1901,7 +1910,7 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
     // If this cast requires a user-defined conversion of the from-type, look up
     // its return type so we can see through up/down-casts via such conversions.
     const Type* converted_from_type = nullptr;
-    if (const NamedDecl* conv_decl = expr->getConversionFunction()) {
+    if (const NamedDecl* conv_decl = GetConversionFunction(expr)) {
       converted_from_type =
           cast<FunctionDecl>(conv_decl)->getReturnType().getTypePtr();
     }
@@ -2383,12 +2392,10 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
         // that, and is clearly a c++ path, is fine; its exact
         // contents don't matter that much.
         using clang::Optional;
-        using clang::DirectoryLookup;
         using clang::FileEntryRef;
         const FileEntry* use_file = CurrentFileEntry();
-        const DirectoryLookup* curdir = nullptr;
         Optional<FileEntryRef> file = compiler()->getPreprocessor().LookupFile(
-            CurrentLoc(), "new", true, nullptr, use_file, curdir, nullptr,
+            CurrentLoc(), "new", true, nullptr, use_file, nullptr, nullptr,
             nullptr, nullptr, nullptr, nullptr, false);
         if (file) {
           preprocessor_info().FileInfoFor(use_file)->ReportFullSymbolUse(
@@ -3644,14 +3651,8 @@ class IwyuAstConsumer
 
     // Check if any unrecoverable errors have occurred.
     // There is no point in continuing when the AST is in a bad state.
-    //
-    // EXIT_INVALIDARGS is not a great choice for the return status
-    // because a compile error will not have a strong connection to the
-    // command line arguments, but there are only 2 error codes and
-    // this is the least bad choice.
-    // TODO : Readdress when error codes are reworked.
     if (compiler()->getDiagnostics().hasUnrecoverableErrorOccurred())
-      exit(EXIT_INVALIDARGS);
+      exit(EXIT_FAILURE);
 
     const set<const FileEntry*>* const files_to_report_iwyu_violations_for
         = preprocessor_info().files_to_report_iwyu_violations_for();
@@ -3681,8 +3682,16 @@ class IwyuAstConsumer
     num_edits += preprocessor_info().FileInfoFor(main_file)
         ->CalculateAndReportIwyuViolations();
 
-    // We need to force the compile to fail so we can re-run.
-    exit(EXIT_SUCCESS_OFFSET + num_edits);
+    int exit_code = EXIT_SUCCESS;
+    if (GlobalFlags().exit_code_always) {
+      // If we should always fail, use --error_always value.
+      exit_code = GlobalFlags().exit_code_always;
+    } else if (num_edits > 0) {
+      // If there were IWYU violations, use --error value.
+      exit_code = GlobalFlags().exit_code_error;
+    }
+
+    exit(exit_code);
   }
 
   void ParseFunctionTemplates(Sema& sema, TranslationUnitDecl* tu_decl) {
@@ -4043,6 +4052,20 @@ class IwyuAstConsumer
     return Base::VisitTypedefType(type);
   }
 
+  bool VisitUsingType(clang::UsingType* type) {
+    if (CanIgnoreCurrentASTNode())
+      return true;
+
+    // UsingType is similar to TypedefType, so treat it the same.
+    if (CanForwardDeclareType(current_ast_node())) {
+      ReportDeclForwardDeclareUse(CurrentLoc(), type->getFoundDecl());
+    } else {
+      ReportDeclUse(CurrentLoc(), type->getFoundDecl());
+    }
+
+    return Base::VisitUsingType(type);
+  }
+
   // This is a superclass of RecordType and CXXRecordType.
   bool VisitTagType(clang::TagType* type) {
     if (CanIgnoreCurrentASTNode())  return true;
@@ -4191,6 +4214,8 @@ using include_what_you_use::IwyuAction;
 using include_what_you_use::CreateCompilerInstance;
 
 int main(int argc, char **argv) {
+  llvm::llvm_shutdown_obj scoped_shutdown;
+
   // X86 target is required to parse Microsoft inline assembly, so we hope it's
   // part of all targets. Clang parser will complain otherwise.
   llvm::InitializeAllTargetInfos();
@@ -4198,21 +4223,19 @@ int main(int argc, char **argv) {
   llvm::InitializeAllAsmParsers();
 
   // The command line should look like
-  //   path/to/iwyu -Xiwyu --verbose=4 [-Xiwyu --other_iwyu_flag]... CLANG_FLAGS... foo.cc
+  //   path/to/iwyu -Xiwyu --verbose=4 [-Xiwyu --other_iwyu_flag]... \
+  //       CLANG_FLAGS... foo.cc
   OptionsParser options_parser(argc, argv);
 
   std::unique_ptr<clang::CompilerInstance> compiler(CreateCompilerInstance(
       options_parser.clang_argc(), options_parser.clang_argv()));
-  if (compiler) {
-    // Create and execute the frontend to generate an LLVM bitcode module.
-    std::unique_ptr<clang::ASTFrontendAction> action(new IwyuAction);
-    compiler->ExecuteAction(*action);
+  if (!compiler) {
+    return EXIT_FAILURE;
   }
 
-  llvm::llvm_shutdown();
+  // Create and execute the frontend to generate an LLVM bitcode module.
+  std::unique_ptr<clang::ASTFrontendAction> action(new IwyuAction);
+  compiler->ExecuteAction(*action);
 
-  // We always return a failure exit code, to indicate we didn't
-  // successfully compile (produce a .o for) the source files we were
-  // given.
-  return 1;
+  return EXIT_SUCCESS;
 }

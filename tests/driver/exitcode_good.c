@@ -1,4 +1,4 @@
-//===--- iwyu_version.h - include-what-you-use versioning -----------------===//
+//===--- exitcode_good.c - test input file for iwyu -----------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,9 +7,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef INCLUDE_WHAT_YOU_USE_IWYU_VERSION_H_
-#define INCLUDE_WHAT_YOU_USE_IWYU_VERSION_H_
+// Tests that IWYU exits with code 0 when no suggestions are made.
 
-#define IWYU_VERSION_STRING "0.19"
+/**** IWYU_SUMMARY(0)
 
-#endif  // INCLUDE_WHAT_YOU_USE_IWYU_VERSION_H_
+(tests/driver/exitcode_good.c has correct #includes/fwd-decls)
+
+***** IWYU_SUMMARY */

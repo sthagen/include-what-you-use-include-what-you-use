@@ -1,8 +1,11 @@
 name: IWYU CI
 
 on:
-  - push
-  - pull_request
+  push:
+  pull_request:
+  schedule:
+    # Run build of master at 03:38 every day
+    - cron: '38 3 * * *'
 
 defaults:
   run:
@@ -32,11 +35,6 @@ jobs:
           sudo apt install -y llvm$LLVM_TAG-dev
           sudo apt install -y libclang$LLVM_TAG-dev
           sudo apt install -y clang$LLVM_TAG
-
-      - name: Broken packaging workaround
-        run: |
-          sudo touch /usr/lib/llvm-14/lib/libclang-14.so.14.0.0
-          sudo touch /usr/lib/llvm-14/bin/llvm-omp-device-info
 
       - name: Check out default branch
         uses: actions/checkout@v2

@@ -1,4 +1,4 @@
-//===--- iwyu_version.h - include-what-you-use versioning -----------------===//
+//===--- exitcode_bad_args.c - test input file for iwyu -------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,9 +7,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef INCLUDE_WHAT_YOU_USE_IWYU_VERSION_H_
-#define INCLUDE_WHAT_YOU_USE_IWYU_VERSION_H_
+// IWYU_ARGS: -some -unsupported -Xiwyu -arguments
 
-#define IWYU_VERSION_STRING "0.19"
+// When argument parsing fails, IWYU exits with code 1.
 
-#endif  // INCLUDE_WHAT_YOU_USE_IWYU_VERSION_H_
+/**** IWYU_SUMMARY(1)
+
+***** IWYU_SUMMARY */
