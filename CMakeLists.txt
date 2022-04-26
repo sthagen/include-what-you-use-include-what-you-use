@@ -1,14 +1,14 @@
 cmake_minimum_required(VERSION 3.4.3)
 
 if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
-  message(STATUS "IWYU: out-of-tree configuration")
-  set(iwyu_in_tree OFF)
+  set(iwyu_standalone_build ON)
+  message(STATUS "IWYU: standalone build")
 else()
-  message(STATUS "IWYU: in-tree configuration")
-  set(iwyu_in_tree ON)
+  set(iwyu_standalone_build OFF)
+  message(STATUS "IWYU: build as part of LLVM")
 endif()
 
-if (NOT iwyu_in_tree)
+if (iwyu_standalone_build)
   cmake_policy(SET CMP0048 NEW)
   if (POLICY CMP0077)
     cmake_policy(SET CMP0077 NEW)
@@ -22,6 +22,18 @@ if (NOT iwyu_in_tree)
   list(APPEND CMAKE_MODULE_PATH ${LLVM_DIR})
   include(AddLLVM)
   include(HandleLLVMOptions)
+
+  set(iwyu_include_dirs
+    ${LLVM_INCLUDE_DIRS}
+    ${CLANG_INCLUDE_DIRS}
+  )
+else()
+  set(iwyu_include_dirs
+    ${LLVM_SOURCE_DIR}/include
+    ${LLVM_EXTERNAL_CLANG_SOURCE_DIR}/include
+    ${LLVM_BINARY_DIR}/include
+    ${LLVM_BINARY_DIR}/tools/clang/include
+  )
 endif()
 
 message(STATUS "IWYU: configuring for LLVM ${LLVM_VERSION}...")
@@ -118,8 +130,7 @@ target_compile_definitions(include-what-you-use PRIVATE
   IWYU_GIT_REV="${iwyu_git_rev}"
 )
 target_include_directories(include-what-you-use PRIVATE
-  ${LLVM_INCLUDE_DIRS}
-  ${CLANG_INCLUDE_DIRS}
+  ${iwyu_include_dirs}
 )
 
 if (MINGW)
