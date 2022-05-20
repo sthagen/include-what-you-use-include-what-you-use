@@ -474,9 +474,8 @@ class BaseAstVisitor : public RecursiveASTVisitor<Derived> {
 
   bool VisitStmt(clang::Stmt* stmt) {
     if (ShouldPrintSymbolFromCurrentFile()) {
-      errs() << AnnotatedName(stmt->getStmtClassName()) << PrintablePtr(stmt);
-      PrintStmt(stmt);
-      errs() << "\n";
+      errs() << AnnotatedName(stmt->getStmtClassName()) << PrintablePtr(stmt)
+             << PrintableStmt(stmt) << "\n";
     }
     return true;
   }
@@ -973,8 +972,8 @@ class AstFlattenerVisitor : public BaseAstVisitor<AstFlattenerVisitor> {
   bool TraverseImplicitDestructorCall(clang::CXXDestructorDecl* decl,
                                       const Type* type) {
     VERRS(7) << GetSymbolAnnotation() << "[implicit dtor] "
-             << static_cast<void*>(decl)
-             << (decl ? PrintableDecl(decl) : "nullptr") << "\n";
+             << static_cast<void*>(decl) << " "
+             << PrintableDecl(decl) << "\n";
     AddAstNodeAsPointer(decl);
     return Base::TraverseImplicitDestructorCall(decl, type);
   }
@@ -983,8 +982,8 @@ class AstFlattenerVisitor : public BaseAstVisitor<AstFlattenerVisitor> {
                           const clang::Type* parent_type,
                           const clang::Expr* calling_expr) {
     VERRS(7) << GetSymbolAnnotation() << "[function call] "
-             << static_cast<void*>(callee)
-             << (callee ? PrintableDecl(callee) : "nullptr") << "\n";
+             << static_cast<void*>(callee) << " "
+             << PrintableDecl(callee) << "\n";
     AddAstNodeAsPointer(callee);
     return Base::HandleFunctionCall(callee, parent_type, calling_expr);
   }
@@ -999,9 +998,7 @@ class AstFlattenerVisitor : public BaseAstVisitor<AstFlattenerVisitor> {
   void AddCurrentAstNodeAsPointer() {
     if (ShouldPrint(7)) {
       errs() << GetSymbolAnnotation() << current_ast_node()->GetAs<void>()
-             << " ";
-      PrintASTNode(current_ast_node());
-      errs() << "\n";
+             << " " << PrintableASTNode(current_ast_node()) << "\n";
     }
     AddAstNodeAsPointer(current_ast_node()->GetAs<void>());
   }
