@@ -44,20 +44,38 @@ given glob pattern (in addition to the default of reporting for the input
 source file and associated header files).
 This flag may be specified multiple times to specify multiple glob patterns.
 .TP
+.BI \-\-comment_style= verbosity
+Controls the style and verbosity of \(lqwhy\(rq comments at the end of
+suggested includes. Options for
+.I verbosity
+are:
+.RS
+.TP
+.B none
+No \(lqwhy\(rq comments.
+.TP
+.B short
+\(lqWhy\(rq comments include symbol names, but no namespaces. This is the
+default.
+.TP
+.B long
+\(lqWhy\(rq comments include symbol names with namespaces.
+.RE
+.TP
 .B \-\-cxx17ns
 Suggest the more concise syntax for nested namespaces introduced in C++17.
 .TP
-.BI \-\-error [=N]
+.BR \-\-error [ =\fIN ]
 Exit with error code
 .IR N
 (defaults to 1 if omitted) if there are \(lqinclude-what-you-use\(rq
 violations.
 .TP
-.BI \-\-error_always [=N]
+.BR \-\-error_always [ =\fIN ]
 Exit with error code
 .IR N
 (defaults to 1 if omitted) whether there are \(lqinclude-what-you-use\(rq
-violations or not (for use with \fBmake(1)\fR).
+violations or not (for use with \fBmake\fR(1)).
 .TP
 .BI \-\-keep= glob
 Always keep the includes matched by
@@ -121,6 +139,10 @@ Do not suggest that a file should add
 .IR foo.h " unless " foo.h
 is already visible in the file's transitive includes.
 .TP
+.BI \-\-update_comments
+Print full include list with comments, even if there are no
+\(lqinclude-what-you-use\(rq violations.
+.TP
 .BI \-\-verbose= level
 Set verbosity. At the highest level, this will dump the AST of the source file
 and explain all decisions.
@@ -132,8 +154,7 @@ exits with zero exit code unless there's a critical error, but
 or
 .B \-\-error_always
 can be used to customize the exit code depending on invoker expectations.
-See
-.IR EXAMPLE\fR.
+For an example see below.
 
 .SH MAPPING FILES
 Sometimes headers are not meant to be included directly,
@@ -272,7 +293,9 @@ make \-k CXX=include-what-you-use CXXFLAGS="-Xiwyu --error_always"
 .EE
 .RE
 .PP
-With \fB-Xiwyu --error_always\fR the program always exits with an error code, so
+With
+.B -Xiwyu --error_always
+the program always exits with an error code, so
 the build system knows that it didn't build an object file. Hence the need for
 .BR -k .
 It only analyzes source files built by
