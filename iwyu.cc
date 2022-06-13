@@ -168,6 +168,8 @@ using clang::Decl;
 using clang::DeclContext;
 using clang::DeclRefExpr;
 using clang::DeducedTemplateSpecializationType;
+using clang::EnumConstantDecl;
+using clang::EnumDecl;
 using clang::EnumType;
 using clang::Expr;
 using clang::FileEntry;
@@ -1246,7 +1248,7 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
              << "'. Looking for fwd-decl hint...\n";
 
     const NamedDecl* fwd_decl = nullptr;
-    for (const NamedDecl* redecl : GetClassRedecls(decl)) {
+    for (const NamedDecl* redecl : GetTagRedecls(decl)) {
       if (GetFileEntry(redecl) == macro_def_file && IsForwardDecl(redecl)) {
         fwd_decl = redecl;
         break;
@@ -1346,9 +1348,9 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
     // If we're a template specialization, we also accept
     // forward-declarations of the underlying template (vector<T>, not
     // vector<int>).
-    set<const NamedDecl*> redecls = GetClassRedecls(decl);
+    set<const NamedDecl*> redecls = GetTagRedecls(decl);
     if (const ClassTemplateSpecializationDecl* spec_decl = DynCastFrom(decl)) {
-      InsertAllInto(GetClassRedecls(spec_decl->getSpecializedTemplate()),
+      InsertAllInto(GetTagRedecls(spec_decl->getSpecializedTemplate()),
                     &redecls);
     }
 
@@ -1368,7 +1370,7 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
     // semantics we want.  Note if there's no definition anywhere, we
     // say the author does not want the full type (which is a good
     // thing, since there isn't one!)
-    if (const NamedDecl* dfn = GetDefinitionForClass(decl)) {
+    if (const NamedDecl* dfn = GetTagDefinition(decl)) {
       if (IsBeforeInSameFile(dfn, use_loc))
         return false;
       if (preprocessor_info().PublicHeaderIntendsToProvide(
@@ -1537,6 +1539,20 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
     // Canonicalize the use location and report the use.
     used_loc = GetCanonicalUseLocation(used_loc, target_decl);
     const FileEntry* used_in = GetFileEntry(used_loc);
+
+    // Report EnumName instead of EnumName::Item.
+    // It supports for removing EnumName forward- (opaque-) declarations
+    // from output.
+    if (const auto* enum_constant_decl =
+            dyn_cast<EnumConstantDecl>(target_decl)) {
+      const auto* enum_decl =
+          cast<EnumDecl>(enum_constant_decl->getDeclContext());
+
+      // for unnamed enums, enumerator name is still preferred
+      if (enum_decl->getIdentifier())
+        target_decl = enum_decl;
+    }
+
     preprocessor_info().FileInfoFor(used_in)->ReportFullSymbolUse(
         used_loc, target_decl, use_flags, comment);
 
@@ -1676,7 +1692,7 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
     return true;
   }
 
-  bool VisitEnumDecl(clang::EnumDecl* decl) {
+  bool VisitEnumDecl(EnumDecl* decl) {
     if (CanIgnoreCurrentASTNode())
       return true;
 
@@ -2534,10 +2550,8 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
   // this the canonical place to figure out if we can forward-declare.
   bool CanForwardDeclareType(const ASTNode* ast_node) const {
     CHECK_(ast_node->IsA<Type>());
-    // Cannot forward-declare an enum even if it's in a forward-declare context.
-    // TODO(vsapsai): make enums forward-declarable in C++11.
-    if (ast_node->IsA<EnumType>())
-      return false;
+    if (const auto* enum_type = ast_node->GetAs<EnumType>())
+      return CanBeOpaqueDeclared(enum_type);
     // If we're in a forward-declare context, well then, there you have it.
     if (ast_node->in_forward_declare_context())
       return true;
@@ -2955,6 +2969,9 @@ class InstantiatedTemplateVisitor
     if (node->ParentIsA<NestedNameSpecifier>()) {
       return true;
     }
+
+    if (const auto* enum_type = dyn_cast<EnumType>(type))
+      return !CanBeOpaqueDeclared(enum_type);
 
     // If we're inside a typedef, we don't need our full type info --
     // in this case we follow what the C++ language allows and let
@@ -3819,7 +3836,7 @@ class IwyuAstConsumer
       // enclosing class.  If the nested class is actually defined in
       // the enclosing class, then we're fine; if not, we need to keep
       // the first forward-declaration.
-      } else if (IsNestedClassAsWritten(current_ast_node())) {
+      } else if (IsNestedTagAsWritten(current_ast_node())) {
         if (!decl->getDefinition() || decl->getDefinition()->isOutOfLine()) {
           // TODO(kimgr): Member class redeclarations are illegal, per C++
           // standard DR85, so this check for first redecl can be removed.
