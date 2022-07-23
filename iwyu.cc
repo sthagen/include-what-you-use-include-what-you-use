@@ -124,6 +124,7 @@
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclBase.h"
 #include "clang/AST/DeclTemplate.h"
+#include "clang/AST/ExprConcepts.h"
 #include "clang/AST/NestedNameSpecifier.h"
 #include "clang/AST/OperationKinds.h"
 #include "clang/AST/RecursiveASTVisitor.h"
@@ -163,6 +164,7 @@ using clang::CallExpr;
 using clang::ClassTemplateDecl;
 using clang::ClassTemplateSpecializationDecl;
 using clang::CompilerInstance;
+using clang::ConceptSpecializationExpr;
 using clang::ConstructorUsingShadowDecl;
 using clang::Decl;
 using clang::DeclContext;
@@ -1431,7 +1433,8 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
 
     const Type* deref_type
         = RemovePointersAndReferencesAsWritten(underlying_type);
-    if (CodeAuthorWantsJustAForwardDeclare(deref_type, GetLocation(decl))) {
+    if (isa<SubstTemplateTypeParmType>(deref_type) ||
+        CodeAuthorWantsJustAForwardDeclare(deref_type, GetLocation(decl))) {
       retval.insert(deref_type);
       // TODO(csilvers): include template type-args if appropriate.
       // This requires doing an iwyu visit of the instantiated
@@ -4003,6 +4006,14 @@ class IwyuAstConsumer
     }
 
     return Base::VisitUnaryExprOrTypeTraitExpr(expr);
+  }
+
+  bool VisitConceptSpecializationExpr(ConceptSpecializationExpr* expr) {
+    if (CanIgnoreCurrentASTNode())
+      return true;
+    ReportDeclUse(CurrentLoc(), expr->getNamedConcept());
+    // TODO(bolshakov): analyze type parameter usage.
+    return Base::VisitConceptSpecializationExpr(expr);
   }
 
   // --- Visitors of types derived from clang::Type.
