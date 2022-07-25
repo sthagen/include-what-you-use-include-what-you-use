@@ -170,6 +170,7 @@ using clang::Decl;
 using clang::DeclContext;
 using clang::DeclRefExpr;
 using clang::DeducedTemplateSpecializationType;
+using clang::ElaboratedType;
 using clang::EnumConstantDecl;
 using clang::EnumDecl;
 using clang::EnumType;
@@ -1703,7 +1704,7 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
     if (const clang::Type* type = integer_type.getTypePtrOrNull()) {
       ReportTypeUse(CurrentLoc(), type);
     }
-    return Base::VisitEnumDecl(decl);
+    return true;
   }
 
   // If you say 'typedef Foo Bar', C++ says you just need to
@@ -1743,7 +1744,7 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
       current_ast_node()->set_in_forward_declare_context(false);
     }
 
-    return Base::VisitTypedefNameDecl(decl);
+    return true;
   }
 
   // If we're a declared (not defined) function, all our types --
@@ -1858,7 +1859,7 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
       ReportTypeUse(CurrentLoc(), return_type);
     }
 
-    return Base::VisitCXXMethodDecl(method_decl);
+    return true;
   }
 
   //------------------------------------------------------------
@@ -1877,7 +1878,7 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
       // catch(...): no type to act on here.
     }
 
-    return Base::VisitCXXCatchStmt(stmt);
+    return true;
   }
 
   // The type of the for-range-init expression is fully required, because the
@@ -1895,7 +1896,7 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
       // argument-dependent begin/end declarations.
     }
 
-    return Base::VisitCXXForRangeStmt(stmt);
+    return true;
   }
 
   // When casting non-pointers, iwyu will do the right thing
@@ -2490,7 +2491,7 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
         }
     }
 
-    return Base::VisitType(type);
+    return true;
   }
 
   bool VisitTemplateSpecializationType(TemplateSpecializationType* type) {
@@ -2610,6 +2611,10 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
         }
 
         parent_type = GetTypeOf(decl);
+      } else if (ast_node->IsA<ElaboratedType>()) {
+        // If it's not a ValueDecl, it must be a type decl. Elaborated types in
+        // type decls are forward-declarable.
+        return true;
       }
     }
 
