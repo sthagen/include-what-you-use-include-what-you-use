@@ -170,7 +170,6 @@ using clang::Decl;
 using clang::DeclContext;
 using clang::DeclRefExpr;
 using clang::DeducedTemplateSpecializationType;
-using clang::ElaboratedType;
 using clang::EnumConstantDecl;
 using clang::EnumDecl;
 using clang::EnumType;
@@ -211,6 +210,7 @@ using clang::TemplateSpecializationType;
 using clang::TemplateSpecializationTypeLoc;
 using clang::TranslationUnitDecl;
 using clang::Type;
+using clang::TypeDecl;
 using clang::TypeLoc;
 using clang::TypedefDecl;
 using clang::TypedefNameDecl;
@@ -1422,9 +1422,9 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
     set<const Type*> retval;
     const Type* underlying_type = decl->getUnderlyingType().getTypePtr();
     // If the underlying type is itself a typedef, we recurse.
-    if (const TypedefType* underlying_typedef = DynCastFrom(underlying_type)) {
-      if (const TypedefNameDecl* underlying_typedef_decl
-          = DynCastFrom(TypeToDeclAsWritten(underlying_typedef))) {
+    if (const auto* underlying_typedef =
+            underlying_type->getAs<TypedefType>()) {
+      if (const auto* underlying_typedef_decl = dyn_cast<TypedefNameDecl>(TypeToDeclAsWritten(underlying_typedef))) {
         // TODO(csilvers): if one of the intermediate typedefs
         // #includes the necessary definition of the 'final'
         // underlying type, do we want to return the empty set here?
@@ -1434,7 +1434,7 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
 
     const Type* deref_type
         = RemovePointersAndReferencesAsWritten(underlying_type);
-    if (isa<SubstTemplateTypeParmType>(deref_type) ||
+    if (isa<SubstTemplateTypeParmType>(underlying_type) ||
         CodeAuthorWantsJustAForwardDeclare(deref_type, GetLocation(decl))) {
       retval.insert(deref_type);
       // TODO(csilvers): include template type-args if appropriate.
@@ -1467,7 +1467,7 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
       if (HasImplicitConversionConstructor(param_type)) {
         const Type* deref_param_type =
             RemovePointersAndReferencesAsWritten(param_type);
-        autocast_types.insert(deref_param_type);
+        autocast_types.insert(Desugar(deref_param_type));
       }
     }
 
@@ -1504,8 +1504,7 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
   set<const Type*> GetCallerResponsibleTypesForFnReturn(
       const FunctionDecl* decl) {
     set<const Type*> retval;
-    const Type* return_type
-        = RemoveElaboration(decl->getReturnType().getTypePtr());
+    const Type* return_type = Desugar(decl->getReturnType().getTypePtr());
     if (CodeAuthorWantsJustAForwardDeclare(return_type, GetLocation(decl))) {
       retval.insert(return_type);
       // TODO(csilvers): include template type-args if appropriate.
@@ -1544,19 +1543,6 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
     used_loc = GetCanonicalUseLocation(used_loc, target_decl);
     const FileEntry* used_in = GetFileEntry(used_loc);
 
-    // Report EnumName instead of EnumName::Item.
-    // It supports for removing EnumName forward- (opaque-) declarations
-    // from output.
-    if (const auto* enum_constant_decl =
-            dyn_cast<EnumConstantDecl>(target_decl)) {
-      const auto* enum_decl =
-          cast<EnumDecl>(enum_constant_decl->getDeclContext());
-
-      // for unnamed enums, enumerator name is still preferred
-      if (enum_decl->getIdentifier())
-        target_decl = enum_decl;
-    }
-
     preprocessor_info().FileInfoFor(used_in)->ReportFullSymbolUse(
         used_loc, target_decl, use_flags, comment);
 
@@ -1588,7 +1574,8 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
       // typedef (that is, 'typedef MyTypedef OtherTypdef'), then the
       // user -- the other typedef -- is never responsible for the
       // underlying type.  Instead, users of that typedef are.
-      if (!current_ast_node()->template ParentIsA<TypedefNameDecl>()) {
+      const ASTNode* ast_node = MostElaboratedAncestor(current_ast_node());
+      if (!ast_node->ParentIsA<TypedefNameDecl>()) {
         const set<const Type*>& underlying_types
             = GetCallerResponsibleTypesForTypedef(typedef_decl);
         if (!underlying_types.empty()) {
@@ -1653,6 +1640,14 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
                              const char* comment = nullptr) {
     // TODO(csilvers): figure out if/when calling CanIgnoreType() is correct.
     if (!type)
+      return;
+
+    // Enum type uses can be ignored. Their size is known (either implicitly
+    // 'int' or from a mandatory transitive inclusion of a non-fixed enum full
+    // declaration, or explicitly using a C++ 11 enum base). Only if an enum
+    // type or its enumerators are explicitly mentioned will they be reported
+    // by IWYU from VisitTagType or VisitDeclRefExpr correspondingly.
+    if (type->getAs<EnumType>())
       return;
 
     // Map private types like __normal_iterator to their public counterpart.
@@ -1784,8 +1779,7 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
       return true;
 
     // ...except the return value.
-    const Type* return_type
-        = RemoveElaboration(decl->getReturnType().getTypePtr());
+    const Type* return_type = Desugar(decl->getReturnType().getTypePtr());
     const bool is_responsible_for_return_type
         = (!CanIgnoreType(return_type) &&
            !IsPointerOrReferenceAsWritten(return_type) &&
@@ -2169,7 +2163,7 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
     // just use the GetTypeOf().
     if (expr->isArgumentType()) {
       const TypeLoc& arg_tl = expr->getArgumentTypeInfo()->getTypeLoc();
-      if (const ReferenceType* reftype = DynCastFrom(arg_tl.getTypePtr())) {
+      if (const auto* reftype = arg_tl.getTypePtr()->getAs<ReferenceType>()) {
         const Type* dereftype = reftype->getPointeeTypeAsWritten().getTypePtr();
         if (!CanIgnoreType(reftype) || !CanIgnoreType(dereftype))
           ReportTypeUse(GetLocation(&arg_tl), dereftype);
@@ -2290,7 +2284,7 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
     // casted-to type.  See IwyuBaseASTVisitor::VisitFunctionDecl.
     // Explicitly written CXXTemporaryObjectExpr are ignored here.
     if (expr->getStmtClass() == Stmt::StmtClass::CXXConstructExprClass) {
-      const Type* type = expr->getType().getTypePtr();
+      const Type* type = Desugar(expr->getType().getTypePtr());
       if (current_ast_node()->template HasAncestorOfType<CallExpr>() &&
           ContainsKey(GetCallerResponsibleTypesForAutocast(current_ast_node()),
                       RemoveReferenceAsWritten(type))) {
@@ -2435,6 +2429,26 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
     return true;
   }
 
+  bool VisitDeclRefExpr(clang::DeclRefExpr* expr) {
+    if (CanIgnoreCurrentASTNode())
+      return true;
+    // Report EnumName instead of EnumName::Item.
+    // It supports for removing EnumName forward- (opaque-) declarations
+    // from output.
+    if (const auto* enum_constant_decl =
+            dyn_cast<EnumConstantDecl>(expr->getDecl())) {
+      const auto* enum_decl =
+          cast<EnumDecl>(enum_constant_decl->getDeclContext());
+
+      // For unnamed enums, enumerator name is still preferred.
+      if (enum_decl->getIdentifier())
+        ReportDeclUse(CurrentLoc(), enum_decl);
+      else
+        ReportDeclUse(CurrentLoc(), enum_constant_decl);
+    }
+    return true;
+  }
+
   // When we call (or potentially call) a function, do an IWYU check
   // via ReportDeclUse() to make sure the definition of the function
   // is properly #included.
@@ -2455,7 +2469,7 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
     // full type information for the return type of the function, but
     // in cases where it's not, we have to take responsibility.
     // TODO(csilvers): check the fn argument types as well.
-    const Type* return_type = callee->getReturnType().getTypePtr();
+    const Type* return_type = Desugar(callee->getReturnType().getTypePtr());
     if (ContainsKey(GetCallerResponsibleTypesForFnReturn(callee),
                     return_type)) {
       ReportTypeUse(CurrentLoc(), return_type);
@@ -2563,25 +2577,14 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
   // this the canonical place to figure out if we can forward-declare.
   bool CanForwardDeclareType(const ASTNode* ast_node) const {
     CHECK_(ast_node->IsA<Type>());
-    if (const auto* enum_type = ast_node->GetAs<EnumType>())
-      return CanBeOpaqueDeclared(enum_type);
+    if (const auto* type = ast_node->GetAs<Type>()) {
+      if (const auto* enum_type = type->getAs<EnumType>()) {
+        return CanBeOpaqueDeclared(enum_type);
+      }
+    }
     // If we're in a forward-declare context, well then, there you have it.
     if (ast_node->in_forward_declare_context())
       return true;
-    // If we're in a typedef, we don't want to forward-declare even if
-    // we're a pointer.  ('typedef Foo* Bar; Bar x; x->a' needs full
-    // type of Foo.)
-    if (ast_node->ParentIsA<TypedefNameDecl>())
-      return false;
-
-    // If we ourselves are a forward-decl -- that is, we're the type
-    // component of a forward-declaration (which would be our parent
-    // AST node) -- then we're forward-declarable by definition.
-    if (const TagDecl* parent
-        = current_ast_node()->template GetParentAs<TagDecl>()) {
-      if (IsForwardDecl(parent))
-        return true;
-    }
 
     // Another place we disregard what the language allows: if we're
     // a dependent type, in theory we can be forward-declared.  But
@@ -2594,16 +2597,15 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
     // Read past elaborations like 'class' keyword or namespaces.
     ast_node = MostElaboratedAncestor(ast_node);
 
-    // Now there are two options: either we have a type or we have a declaration
-    // involving a type.
+    // Now there are two options: either we are part of a type or we are part of
+    // a declaration involving a type.
     const Type* parent_type = ast_node->GetParentAs<Type>();
     if (parent_type == nullptr) {
-      // Since it's not a type, it must be a decl.
-      // Our target here is record members, all of which derive from ValueDecl.
-      if (const ValueDecl *decl = ast_node->GetParentAs<ValueDecl>()) {
+      // It's not a type; analyze different kinds of declarations.
+      if (const auto *decl = ast_node->GetParentAs<ValueDecl>()) {
         // We can shortcircuit static data member declarations immediately,
         // they can always be forward-declared.
-        if (const VarDecl *var_decl = DynCastFrom(decl)) {
+        if (const auto *var_decl = dyn_cast<VarDecl>(decl)) {
           if (!var_decl->isThisDeclarationADefinition() &&
               var_decl->isStaticDataMember()) {
             return true;
@@ -2611,10 +2613,27 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
         }
 
         parent_type = GetTypeOf(decl);
-      } else if (ast_node->IsA<ElaboratedType>()) {
-        // If it's not a ValueDecl, it must be a type decl. Elaborated types in
-        // type decls are forward-declarable.
-        return true;
+      } else if (const auto *decl = ast_node->GetParentAs<TypeDecl>()) {
+        // Elaborated types in type decls are always forward-declarable
+        // (and usually count as forward declarations themselves).
+        if (IsElaboratedTypeSpecifier(ast_node)) {
+          return true;
+        }
+
+        // If we ourselves are a forward-decl -- that is, we're the type
+        // component of a forward-declaration (which would be our parent
+        // AST node) -- then we're forward-declarable by definition.
+        if (const auto* parent_decl = ast_node->GetParentAs<TagDecl>()) {
+          if (IsForwardDecl(parent_decl))
+            return true;
+        }
+
+        // If we're part of a typedef declaration, we don't want to forward-
+        // declare even if we're a pointer ('typedef Foo* Bar; Bar x; x->a'
+        // needs full type of Foo.)
+        if (ast_node->ParentIsA<TypedefNameDecl>()) {
+          return false;
+        }
       }
     }
 
@@ -2820,7 +2839,7 @@ class InstantiatedTemplateVisitor
     // Among all subst-type params, we only want those in the resugar-map. If
     // we're not in the resugar-map at all, we're not a type corresponding to
     // the template being instantiated, so we can be ignored.
-    type = RemoveSubstTemplateTypeParm(type);
+    type = Desugar(type);
     return ContainsKey(resugar_map_, type);
   }
 
@@ -2893,10 +2912,10 @@ class InstantiatedTemplateVisitor
     if (CanIgnoreCurrentASTNode())  return true;
     const Type* arg_type = expr->getTypeOfArgument().getTypePtr();
     // Calling sizeof on a reference-to-X is the same as calling it on X.
-    if (const ReferenceType* reftype = DynCastFrom(arg_type)) {
+    if (const auto* reftype = arg_type->getAs<ReferenceType>()) {
       arg_type = reftype->getPointeeTypeAsWritten().getTypePtr();
     }
-    if (const TemplateSpecializationType* type = DynCastFrom(arg_type)) {
+    if (const auto* type = arg_type->getAs<TemplateSpecializationType>()) {
       // Even though sizeof(MyClass<T>) only requires knowing how much
       // storage MyClass<T> takes, the language seems to require that
       // MyClass<T> be fully instantiated, even typedefs.  (Try
@@ -2986,9 +3005,6 @@ class InstantiatedTemplateVisitor
     if (node->ParentIsA<NestedNameSpecifier>()) {
       return true;
     }
-
-    if (const auto* enum_type = dyn_cast<EnumType>(type))
-      return !CanBeOpaqueDeclared(enum_type);
 
     // If we're inside a typedef, we don't need our full type info --
     // in this case we follow what the C++ language allows and let
@@ -3234,7 +3250,7 @@ class InstantiatedTemplateVisitor
     return GetLocOfTemplateThatProvides(decl).isValid();
   }
   bool IsProvidedByTemplate(const Type* type) const {
-    type = RemoveSubstTemplateTypeParm(type);
+    type = Desugar(type);
     type = RemovePointersAndReferences(type);  // get down to the decl
     if (const NamedDecl* decl = TypeToDeclAsWritten(type)) {
       decl = GetDefinitionAsWritten(decl);
@@ -3248,7 +3264,7 @@ class InstantiatedTemplateVisitor
   // class was instantiated) or not.  We store this in resugar_map by
   // having the value be nullptr.
   bool IsDefaultTemplateParameter(const Type* type) const {
-    type = RemoveSubstTemplateTypeParm(type);
+    type = Desugar(type);
     return ContainsKeyValue(resugar_map_, type, static_cast<Type*>(nullptr));
   }
 
@@ -3257,7 +3273,7 @@ class InstantiatedTemplateVisitor
   // If we're not in the resugar-map, then we weren't canonicalized,
   // so we can just use the input type unchanged.
   const Type* ResugarType(const Type* type) const {
-    type = RemoveSubstTemplateTypeParm(type);
+    type = Desugar(type);
     // If we're the resugar-map but with a value of nullptr, it means
     // we're a default template arg, which means we don't have anything
     // to resugar to.  So just return the input type.
@@ -3315,7 +3331,7 @@ class InstantiatedTemplateVisitor
     //    class S; int main() { C<S> c; }
     if (isa<CXXConstructorDecl>(fn_decl)) {
       CHECK_(parent_type && "How can a constructor have no parent?");
-      parent_type = RemoveElaboration(parent_type);
+      parent_type = Desugar(parent_type);
       if (!TraverseDataAndTypeMembersOfClassHelper(
               dyn_cast<TemplateSpecializationType>(parent_type)))
         return false;
@@ -3337,7 +3353,7 @@ class InstantiatedTemplateVisitor
       return true;
 
     while (type->isTypeAlias()) {
-      type = DynCastFrom(type->getAliasedType().getTypePtr());
+      type = type->getAliasedType()->getAs<TemplateSpecializationType>();
       if (!type)
         return true;
     }
@@ -3981,7 +3997,7 @@ class IwyuAstConsumer
     // once we've tracked the UsingDecl use.
     if (const UsingShadowDecl* found_decl = DynCastFrom(expr->getFoundDecl())) {
       ReportDeclUse(CurrentLoc(), found_decl);
-    } else {
+    } else if (!isa<EnumConstantDecl>(expr->getDecl())) {
       ReportDeclUse(CurrentLoc(), expr->getDecl());
     }
     return Base::VisitDeclRefExpr(expr);
@@ -3993,14 +4009,14 @@ class IwyuAstConsumer
   bool VisitUnaryExprOrTypeTraitExpr(clang::UnaryExprOrTypeTraitExpr* expr) {
     if (CanIgnoreCurrentASTNode())  return true;
 
-    const Type* arg_type =
-        RemoveElaboration(expr->getTypeOfArgument().getTypePtr());
+    const Type* arg_type = expr->getTypeOfArgument().getTypePtr();
+
     // Calling sizeof on a reference-to-X is the same as calling it on X.
-    if (const ReferenceType* reftype = DynCastFrom(arg_type)) {
+    if (const auto* reftype = arg_type->getAs<ReferenceType>()) {
       arg_type = reftype->getPointeeTypeAsWritten().getTypePtr();
     }
 
-    if (const TemplateSpecializationType* arg_tmpl = DynCastFrom(arg_type)) {
+    if (const auto* arg_tmpl = arg_type->getAs<TemplateSpecializationType>()) {
       // Special case: We are instantiating the type in the context of an
       // expression. Need to push the type to the AST stack explicitly.
       ASTNode node(arg_tmpl);
@@ -4063,7 +4079,7 @@ class IwyuAstConsumer
         // Note that enums are never forward-declarable, so elaborated enums are
         // already short-circuited in CanForwardDeclareType.
         const ASTNode* parent = current_ast_node()->parent();
-        if (!IsElaborationNode(parent) || IsQualifiedNameNode(parent))
+        if (!IsElaboratedTypeSpecifier(parent) || IsQualifiedNameNode(parent))
           ReportDeclForwardDeclareUse(CurrentLoc(), type->getDecl());
       } else {
         // In C, all struct references are elaborated, so we really never need

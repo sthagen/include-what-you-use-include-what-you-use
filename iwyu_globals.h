@@ -28,6 +28,7 @@ using std::set;
 using std::string;
 using std::vector;
 
+enum class RegexDialect;
 class FullUseCache;
 class IncludePicker;
 class SourceManagerCharacterDataGetter;
@@ -76,6 +77,7 @@ struct CommandlineFlags {
   enum PrefixHeaderIncludePolicy { kAdd, kKeep, kRemove };
   CommandlineFlags();                     // sets flags to default values
   int ParseArgv(int argc, char** argv);   // parses flags from argv
+  bool HasDebugFlag(const char* flag) const;
 
   set<string> check_also;  // -c: globs to report iwyu violations for
   set<string> keep;        // -k: globs to force-keep includes for
@@ -96,6 +98,8 @@ struct CommandlineFlags {
   bool cxx17ns; // -C: C++17 nested namespace syntax
   int exit_code_error;   // Exit with this code for iwyu violations.
   int exit_code_always;  // Always exit with this exit code.
+  set<string> dbg_flags; // Debug flags.
+  RegexDialect regex_dialect;  // Dialect for regular expression processing.
 };
 
 const CommandlineFlags& GlobalFlags();

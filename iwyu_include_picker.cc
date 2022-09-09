@@ -16,7 +16,6 @@
 // not hash_map: it's not as portable and needs hash<string>.
 #include <map>                          // for map, map<>::mapped_type, etc
 #include <memory>
-#include <regex>
 #include <string>                       // for string, basic_string, etc
 #include <system_error>                 // for error_code
 #include <utility>                      // for pair, make_pair
@@ -25,6 +24,7 @@
 #include "iwyu_location_util.h"
 #include "iwyu_path_util.h"
 #include "iwyu_port.h"
+#include "iwyu_regex.h"
 #include "iwyu_stl_util.h"
 #include "iwyu_string_util.h"
 #include "iwyu_verrs.h"
@@ -120,6 +120,7 @@ const IncludeMapEntry libc_symbol_map[] = {
   { "fsblkcnt_t", kPrivate, "<sys/statvfs.h>", kPublic },
   { "fsfilcnt_t", kPrivate, "<sys/types.h>", kPublic },
   { "fsfilcnt_t", kPrivate, "<sys/statvfs.h>", kPublic },
+  { "getopt", kPrivate, "<unistd.h>", kPublic },
   { "gid_t", kPrivate, "<sys/types.h>", kPublic },
   { "gid_t", kPrivate, "<grp.h>", kPublic },
   { "gid_t", kPrivate, "<pwd.h>", kPublic },
@@ -152,6 +153,8 @@ const IncludeMapEntry libc_symbol_map[] = {
   { "uintptr_t", kPrivate, "<stdint.h>", kPublic },
   { "iovec", kPrivate, "<sys/uio.h>", kPublic },
   { "iovec", kPrivate, "<sys/socket.h>", kPublic },
+  { "itimerspec", kPrivate, "<time.h>", kPublic },
+  { "itimerspec", kPrivate, "<sys/timerfd.h>", kPublic },
   { "key_t", kPrivate, "<sys/types.h>", kPublic },
   { "key_t", kPrivate, "<sys/ipc.h>", kPublic },
   { "lconv", kPrivate, "<locale.h>", kPublic },
@@ -178,6 +181,10 @@ const IncludeMapEntry libc_symbol_map[] = {
   { "off_t", kPrivate, "<sys/mman.h>", kPublic },
   { "off_t", kPrivate, "<sys/stat.h>", kPublic },
   { "off_t", kPrivate, "<unistd.h>", kPublic },
+  { "optarg", kPrivate, "<unistd.h>", kPublic },
+  { "opterr", kPrivate, "<unistd.h>", kPublic },
+  { "optind", kPrivate, "<unistd.h>", kPublic },
+  { "optopt", kPrivate, "<unistd.h>", kPublic },
   { "pid_t", kPrivate, "<sys/types.h>", kPublic },
   { "pid_t", kPrivate, "<fcntl.h>", kPublic },
   { "pid_t", kPrivate, "<sched.h>", kPublic },
@@ -408,6 +415,7 @@ const IncludeMapEntry libc_include_map[] = {
   { "<bits/mathdef.h>", kPrivate, "<math.h>", kPublic },
   { "<bits/mathinline.h>", kPrivate, "<math.h>", kPublic },
   { "<bits/mman.h>", kPrivate, "<sys/mman.h>", kPublic },
+  { "<bits/mman-shared.h>", kPrivate, "<sys/mman.h>", kPublic },
   { "<bits/monetary-ldbl.h>", kPrivate, "<monetary.h>", kPublic },
   { "<bits/mqueue.h>", kPrivate, "<mqueue.h>", kPublic },
   { "<bits/mqueue2.h>", kPrivate, "<mqueue.h>", kPublic },
@@ -459,8 +467,10 @@ const IncludeMapEntry libc_include_map[] = {
   { "<bits/string2.h>", kPrivate, "<string.h>", kPublic },
   { "<bits/string3.h>", kPrivate, "<string.h>", kPublic },
   { "<bits/stropts.h>", kPrivate, "<stropts.h>", kPublic },
+  { "<bits/struct_stat.h>", kPrivate, "<sys/stat.h>", kPublic },
+  { "<bits/struct_stat.h>", kPrivate, "<ftw.h>", kPublic },
   { "<bits/sys_errlist.h>", kPrivate, "<stdio.h>", kPublic },
-  { "<bits/syscall.h>", kPrivate, "<sys/syscall.h>", kPrivate },
+  { "<bits/syscall.h>", kPrivate, "<sys/syscall.h>", kPublic },
   { "<bits/sysctl.h>", kPrivate, "<sys/sysctl.h>", kPublic },
   { "<bits/syslog-ldbl.h>", kPrivate, "<sys/syslog.h>", kPrivate },
   { "<bits/syslog-path.h>", kPrivate, "<sys/syslog.h>", kPrivate },
@@ -474,6 +484,8 @@ const IncludeMapEntry libc_include_map[] = {
   { "<bits/timerfd.h>", kPrivate, "<sys/timerfd.h>", kPublic },
   { "<bits/timex.h>", kPrivate, "<sys/timex.h>", kPublic },
   { "<bits/types.h>", kPrivate, "<sys/types.h>", kPublic },
+  { "<bits/types/siginfo_t.h>", kPrivate, "<signal.h>", kPublic },
+  { "<bits/types/siginfo_t.h>", kPrivate, "<sys/wait.h>", kPublic },
   { "<bits/uio.h>", kPrivate, "<sys/uio.h>", kPublic },
   { "<bits/unistd.h>", kPrivate, "<unistd.h>", kPublic },
   { "<bits/ustat.h>", kPrivate, "<sys/ustat.h>", kPrivate },
@@ -538,7 +550,6 @@ const IncludeMapEntry libc_include_map[] = {
   { "<bits/string.h>", kPrivate, "<string.h>", kPublic },
   { "<bits/string2.h>", kPrivate, "<string.h>", kPublic },
   { "<bits/string3.h>", kPrivate, "<string.h>", kPublic },
-  { "<bits/syscall.h>", kPrivate, "<sys/syscall.h>", kPrivate },
   { "<bits/timerfd.h>", kPrivate, "<sys/timerfd.h>", kPublic },
   { "<bits/typesizes.h>", kPrivate, "<sys/types.h>", kPublic },
   // Top-level #includes that just forward to another file:
@@ -549,7 +560,6 @@ const IncludeMapEntry libc_include_map[] = {
   // to decide which of the two files is canonical.  If neither is
   // on the POSIX.1 1998 list, I just choose the top-level one.
   { "<sys/poll.h>", kPrivate, "<poll.h>", kPublic },
-  { "<sys/syscall.h>", kPrivate, "<syscall.h>", kPublic },
   { "<sys/syslog.h>", kPrivate, "<syslog.h>", kPublic },
   { "<sys/ustat.h>", kPrivate, "<ustat.h>", kPublic },
   { "<wait.h>", kPrivate, "<sys/wait.h>", kPublic },
@@ -571,7 +581,7 @@ const IncludeMapEntry libc_include_map[] = {
   { "<asm/errno.h>", kPrivate, "<errno.h>", kPublic },
   { "<asm/errno-base.h>", kPrivate, "<errno.h>", kPublic },
   { "<asm/ptrace-abi.h>", kPrivate, "<asm/ptrace.h>", kPublic },
-  { "<asm/unistd.h>", kPrivate, "<syscall.h>", kPublic },
+  { "<asm/unistd.h>", kPrivate, "<sys/syscall.h>", kPublic },
   { "<linux/limits.h>", kPrivate, "<limits.h>", kPublic },   // PATH_MAX
   { "<linux/prctl.h>", kPrivate, "<sys/prctl.h>", kPublic },
   { "<sys/ucontext.h>", kPrivate, "<ucontext.h>", kPublic },
@@ -837,6 +847,7 @@ const IncludeMapEntry libstdcpp_include_map[] = {
   { "<bits/unique_ptr.h>", kPrivate, "<memory>", kPublic },
   { "<bits/unordered_map.h>", kPrivate, "<unordered_map>", kPublic },
   { "<bits/unordered_set.h>", kPrivate, "<unordered_set>", kPublic },
+  { "<bits/utility.h>", kPrivate, "<utility>", kPublic },
   { "<bits/valarray_after.h>", kPrivate, "<valarray>", kPublic },
   { "<bits/valarray_array.h>", kPrivate, "<valarray>", kPublic },
   { "<bits/valarray_array.tcc>", kPrivate, "<valarray>", kPublic },
@@ -1220,8 +1231,10 @@ bool MappedInclude::HasAbsoluteQuotedInclude() const {
   return IsAbsolutePath(path);
 }
 
-IncludePicker::IncludePicker(bool no_default_mappings)
-    : has_called_finalize_added_include_lines_(false) {
+IncludePicker::IncludePicker(bool no_default_mappings,
+                             RegexDialect regex_dialect)
+    : has_called_finalize_added_include_lines_(false),
+      regex_dialect(regex_dialect) {
   if (!no_default_mappings) {
     AddDefaultMappings();
   }
@@ -1424,9 +1437,7 @@ void IncludePicker::ExpandRegexes() {
     const string& hdr = incmap.first;
     for (const string& regex_key : filepath_include_map_regex_keys) {
       const vector<MappedInclude>& map_to = filepath_include_map_[regex_key];
-      // Enclose the regex in ^(...)$ for full match.
-      std::regex regex(std::string("^(" + regex_key.substr(1) + ")$"));
-      if (std::regex_match(hdr, regex) &&
+      if (RegexMatch(regex_dialect, hdr, regex_key.substr(1)) &&
           !ContainsQuotedInclude(map_to, hdr)) {
         Extend(&filepath_include_map_[hdr], filepath_include_map_[regex_key]);
         MarkVisibility(&include_visibility_map_, hdr,
@@ -1434,8 +1445,7 @@ void IncludePicker::ExpandRegexes() {
       }
     }
     for (const string& regex_key : friend_to_headers_map_regex_keys) {
-      std::regex regex(std::string("^(" + regex_key.substr(1) + ")$"));
-      if (std::regex_match(hdr, regex)) {
+      if (RegexMatch(regex_dialect, hdr, regex_key.substr(1))) {
         InsertAllInto(friend_to_headers_map_[regex_key],
                       &friend_to_headers_map_[hdr]);
       }
