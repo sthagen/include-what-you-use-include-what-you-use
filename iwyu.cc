@@ -1484,6 +1484,8 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
               GetFileEntry(call_expr), GetFileEntry(*fn_redecl))) {
         continue;
       }
+      if (fn_redecl->isThisDeclarationADefinition() && !IsInHeader(*fn_redecl))
+        continue;
       for (set<const Type*>::iterator it = retval.begin();
            it != retval.end(); ) {
         if (!CodeAuthorWantsJustAForwardDeclare(*it, GetLocation(*fn_redecl))) {
@@ -1768,6 +1770,11 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
         while ((redecl = redecl->getPreviousDecl()))
           ReportDeclUse(CurrentLoc(), redecl);
       }
+      if (!IsInHeader(decl)) {
+        // No point in author-intent analysis of function definitions
+        // in source files.
+        return true;
+      }
     } else {
       // Make all our types forward-declarable...
       current_ast_node()->set_in_forward_declare_context(true);
@@ -1864,10 +1871,15 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
   bool VisitCXXCatchStmt(clang::CXXCatchStmt* stmt) {
     if (CanIgnoreCurrentASTNode()) return true;
 
-    if (const Type* caught_type = stmt->getCaughtType().getTypePtrOrNull()) {
-      // Strip off pointers/references to get to the 'base' type.
+    if (const VarDecl* exception_decl = stmt->getExceptionDecl()) {
+      // Get the caught type from the decl via associated type source info to
+      // get more precise location info for the type use.
+      TypeLoc typeloc = exception_decl->getTypeSourceInfo()->getTypeLoc();
+      const Type* caught_type = typeloc.getType().getTypePtr();
+
+      // Strip off pointers/references to get to the pointee type.
       caught_type = RemovePointersAndReferencesAsWritten(caught_type);
-      ReportTypeUse(CurrentLoc(), caught_type);
+      ReportTypeUse(GetLocation(&typeloc), caught_type);
     } else {
       // catch(...): no type to act on here.
     }
