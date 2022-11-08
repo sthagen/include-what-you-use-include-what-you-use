@@ -32,7 +32,6 @@
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/DeclTemplate.h"
 #include "clang/AST/ExprCXX.h"
-#include "clang/AST/IgnoreExpr.h"
 #include "clang/AST/NestedNameSpecifier.h"
 #include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/AST/Stmt.h"
@@ -50,14 +49,11 @@ class FileEntry;
 
 using clang::ASTDumper;
 using clang::BlockPointerType;
-using clang::CastExpr;
-using clang::CXXBindTemporaryExpr;
 using clang::CXXConstructExpr;
 using clang::CXXConstructorDecl;
 using clang::CXXDeleteExpr;
 using clang::CXXDependentScopeMemberExpr;
 using clang::CXXDestructorDecl;
-using clang::CXXMemberCallExpr;
 using clang::CXXMethodDecl;
 using clang::CXXNewExpr;
 using clang::CXXRecordDecl;
@@ -78,15 +74,12 @@ using clang::EnumDecl;
 using clang::Expr;
 using clang::ExprWithCleanups;
 using clang::FileEntry;
-using clang::FullExpr;
 using clang::FullSourceLoc;
 using clang::FunctionDecl;
 using clang::FunctionType;
 using clang::ImplicitCastExpr;
-using clang::IgnoreExprNodes;
 using clang::InjectedClassNameType;
 using clang::LValueReferenceType;
-using clang::MaterializeTemporaryExpr;
 using clang::MemberExpr;
 using clang::MemberPointerType;
 using clang::NamedDecl;
@@ -1308,15 +1301,15 @@ GetTplTypeResugarMapForClassNoComponentTypes(const clang::Type* type) {
   // Pull the template arguments out of the specialization type. If this is
   // a ClassTemplateSpecializationDecl specifically, we want to
   // get the arguments therefrom to correctly handle default arguments.
-  const TemplateArgument* tpl_args = tpl_spec_type->getArgs();
-  unsigned num_args = tpl_spec_type->getNumArgs();
+  llvm::ArrayRef<TemplateArgument> tpl_args = tpl_spec_type->template_arguments();
+  unsigned num_args = tpl_args.size();
 
   const NamedDecl* decl = TypeToDeclAsWritten(tpl_spec_type);
   const auto* cls_tpl_decl = dyn_cast<ClassTemplateSpecializationDecl>(decl);
   if (cls_tpl_decl) {
     const TemplateArgumentList& tpl_arg_list =
         cls_tpl_decl->getTemplateInstantiationArgs();
-    tpl_args = tpl_arg_list.data();
+    tpl_args = tpl_arg_list.asArray();
     num_args = tpl_arg_list.size();
   }
 
@@ -1326,9 +1319,9 @@ GetTplTypeResugarMapForClassNoComponentTypes(const clang::Type* type) {
   //   template <typename R, typename A1> struct Foo<R(A1)> { ... }
   set<unsigned> explicit_args;   // indices into tpl_args we've filled
   TypeEnumerator type_enumerator;
-  for (unsigned i = 0; i < tpl_spec_type->getNumArgs(); ++i) {
+  for (unsigned i = 0; i < tpl_spec_type->template_arguments().size(); ++i) {
     set<const Type*> arg_components
-        = type_enumerator.Enumerate(tpl_spec_type->getArg(i));
+        = type_enumerator.Enumerate(tpl_spec_type->template_arguments()[i]);
     // Go through all template types mentioned in the arg-as-written,
     // and compare it against each of the types in the template decl
     // (the latter are all desugared).  If there's a match, update
@@ -1478,38 +1471,6 @@ TemplateArgumentListInfo GetExplicitTplArgs(const Expr* expr) {
   else if (const DependentScopeDeclRefExpr* dependent_decl_ref = DynCastFrom(expr))
     dependent_decl_ref->copyTemplateArgumentsInto(explicit_tpl_args);
   return explicit_tpl_args;
-}
-
-// This is lifted from CastExpr::getConversionFunction, and naively simplified
-// to work around bugs with consteval conversion functions.
-const NamedDecl* GetConversionFunction(const CastExpr* expr) {
-  const Expr *subexpr = nullptr;
-  for (const CastExpr *e = expr; e; e = dyn_cast<ImplicitCastExpr>(subexpr)) {
-    // Skip through implicit sema nodes.
-    subexpr = IgnoreExprNodes(e->getSubExpr(), [](Expr* expr) {
-      // FullExpr is ConstantExpr + ExprWithCleanups.
-      if (auto* fe = dyn_cast<FullExpr>(expr))
-        return fe->getSubExpr();
-
-      if (auto* mte = dyn_cast<MaterializeTemporaryExpr>(expr))
-        return mte->getSubExpr();
-
-      if (auto* bte = dyn_cast<CXXBindTemporaryExpr>(expr))
-        return bte->getSubExpr();
-
-      return expr;
-    });
-
-    // Now resolve the conversion function depending on cast kind.
-    if (e->getCastKind() == clang::CK_ConstructorConversion)
-      return cast<CXXConstructExpr>(subexpr)->getConstructor();
-
-    if (e->getCastKind() == clang::CK_UserDefinedConversion) {
-      if (auto *MCE = dyn_cast<CXXMemberCallExpr>(subexpr))
-        return MCE->getMethodDecl();
-    }
-  }
-  return nullptr;
 }
 
 }  // namespace include_what_you_use
