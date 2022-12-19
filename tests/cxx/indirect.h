@@ -17,10 +17,25 @@
 
 class IndirectClass {
  public:
-  void Method() const { };
+  void Method() const {
+  }
   int a;
-  static void StaticMethod() { };
+  static void StaticMethod() {
+  }
   static int statica;
+};
+
+template <typename T>
+class IndirectTemplate {
+ public:
+  void Method() const {
+  }
+  int a;
+  static void StaticMethod() {
+  }
+
+ private:
+  T t;
 };
 
 

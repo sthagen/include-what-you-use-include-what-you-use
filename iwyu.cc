@@ -205,6 +205,7 @@ using clang::TagType;
 using clang::TemplateArgument;
 using clang::TemplateArgumentList;
 using clang::TemplateArgumentLoc;
+using clang::TemplateDecl;
 using clang::TemplateName;
 using clang::TemplateSpecializationType;
 using clang::TemplateSpecializationTypeLoc;
@@ -551,12 +552,12 @@ class BaseAstVisitor : public RecursiveASTVisitor<Derived> {
     // Collect all the fields (and bases) we destroy, and call the dtor.
     set<const Type*> member_types;
     const CXXRecordDecl* record = decl->getParent();
-    for (clang::RecordDecl::field_iterator it = record->field_begin();
+    for (RecordDecl::field_iterator it = record->field_begin();
          it != record->field_end(); ++it) {
       member_types.insert(it->getType().getTypePtr());
     }
-    for (clang::CXXRecordDecl::base_class_const_iterator
-             it = record->bases_begin(); it != record->bases_end(); ++it) {
+    for (CXXRecordDecl::base_class_const_iterator it = record->bases_begin();
+         it != record->bases_end(); ++it) {
       member_types.insert(it->getType().getTypePtr());
     }
     for (const Type* type : member_types) {
@@ -1664,6 +1665,10 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
                                                                  comment);
       }
     } else {
+      if (const auto* template_spec_type =
+              dyn_cast<TemplateSpecializationType>(Desugar(type))) {
+        this->getDerived().ReportTplSpecComponentTypes(template_spec_type);
+      }
       if (const NamedDecl* decl = TypeToDeclAsWritten(type)) {
         decl = GetDefinitionAsWritten(decl);
         VERRS(6) << "(For type " << PrintableType(type) << "):\n";
@@ -2669,6 +2674,16 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
     visitor_state_->processed_overload_locs.insert(loc);
   }
 
+  // Report types needed for template instantiation in cases when template
+  // specialization type isn't explicitly written in a source code
+  // in a non-fwd-declarable context (otherwise, they should be reported from
+  // VisitTemplateSpecializationType), e.g.:
+  // template <class T> struct S { T t; };
+  // void fn(const S<Class>& s) { // Forward declarations are sufficient here.
+  //   (void)s.t; // Full 'Class' type is needed due to template instantiation.
+  // }
+  void ReportTplSpecComponentTypes(const TemplateSpecializationType*) = delete;
+
   // Do not add any variables here!  If you do, they will not be shared
   // between the normal iwyu ast visitor and the
   // template-instantiation visitor, which is almost always a mistake.
@@ -3220,6 +3235,12 @@ class InstantiatedTemplateVisitor
     return Base::VisitCXXConstructExpr(expr);
   }
 
+  // --- Handler declared in IwyuBaseASTVisitor.
+
+  void ReportTplSpecComponentTypes(const TemplateSpecializationType* type) {
+    TraverseDataAndTypeMembersOfClassHelper(type);
+  }
+
  private:
   // Clears the state of the visitor.
   void Clear() {
@@ -3395,8 +3416,8 @@ class InstantiatedTemplateVisitor
       // expect it to be another kind of template decl, like a built-in.
       // Also in some rare cases named_decl can be a record decl (e.g. when
       // using the built-in __type_pack_element).
-      CHECK_(llvm::isa<clang::TemplateDecl>(named_decl) ||
-             llvm::isa<clang::RecordDecl>(named_decl))
+      CHECK_(llvm::isa<TemplateDecl>(named_decl) ||
+             llvm::isa<RecordDecl>(named_decl))
           << "TemplateSpecializationType has no decl of type TemplateDecl or "
              "RecordDecl?";
       return true;
@@ -4016,32 +4037,6 @@ class IwyuAstConsumer
     return Base::VisitDeclRefExpr(expr);
   }
 
-  // This Expr is for sizeof(), alignof() and similar.  The compiler
-  // fully instantiates a template class before taking the size of it.
-  // So so do we.
-  bool VisitUnaryExprOrTypeTraitExpr(clang::UnaryExprOrTypeTraitExpr* expr) {
-    if (CanIgnoreCurrentASTNode())  return true;
-
-    const Type* arg_type = expr->getTypeOfArgument().getTypePtr();
-
-    // Calling sizeof on a reference-to-X is the same as calling it on X.
-    if (const auto* reftype = arg_type->getAs<ReferenceType>()) {
-      arg_type = reftype->getPointeeTypeAsWritten().getTypePtr();
-    }
-
-    if (const auto* arg_tmpl = arg_type->getAs<TemplateSpecializationType>()) {
-      // Special case: We are instantiating the type in the context of an
-      // expression. Need to push the type to the AST stack explicitly.
-      ASTNode node(arg_tmpl);
-      node.SetParent(current_ast_node());
-
-      instantiated_template_visitor_.ScanInstantiatedType(
-          &node, GetTplTypeResugarMapForClass(arg_type));
-    }
-
-    return Base::VisitUnaryExprOrTypeTraitExpr(expr);
-  }
-
   bool VisitConceptSpecializationExpr(ConceptSpecializationExpr* expr) {
     if (CanIgnoreCurrentASTNode())
       return true;
@@ -4154,7 +4149,15 @@ class IwyuAstConsumer
     if (ast_node->ParentIsA<DeducedTemplateSpecializationType>() ||
         IsDefaultTemplateTemplateArg(ast_node)) {
       current_ast_node()->set_in_forward_declare_context(false);
-      ReportDeclUse(CurrentLoc(), template_name.getAsTemplateDecl());
+      // Not all template name kinds have an associated template decl; notably
+      // dependent names, overloaded template names and ADL-resolved names. Only
+      // report the use if we can find a decl.
+      if (TemplateDecl* template_decl = template_name.getAsTemplateDecl()) {
+        ReportDeclUse(CurrentLoc(), template_decl);
+      } else {
+        // TODO: There should probably be handling of these delayed-resolution
+        // template decls as well, but probably not here.
+      }
     }
     return true;
   }
@@ -4186,6 +4189,16 @@ class IwyuAstConsumer
         callee, parent_type,
         current_ast_node(), resugar_map);
     return true;
+  }
+
+  // --- Handler declared in IwyuBaseASTVisitor.
+
+  void ReportTplSpecComponentTypes(const TemplateSpecializationType* type) {
+    const map<const Type*, const Type*> resugar_map =
+        GetTplTypeResugarMapForClass(type);
+    ASTNode node(type);
+    node.SetParent(current_ast_node());
+    instantiated_template_visitor_.ScanInstantiatedType(&node, resugar_map);
   }
 
  private:

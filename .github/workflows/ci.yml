@@ -28,17 +28,13 @@ jobs:
           sudo apt update
           sudo apt install -y ninja-build
           # Remove any base dist LLVM/Clang installations
-          sudo apt remove -y "libclang-dev*"
+          sudo apt remove -y "libclang*"
           sudo apt remove -y "clang*"
           sudo apt remove -y "llvm*"
           # Reinstall tagged versions
           sudo apt install -y llvm$LLVM_TAG-dev
-          sudo apt install -y libclang$LLVM_TAG-dev
-          sudo apt install -y clang$LLVM_TAG
-
-      - name: Work around broken packaging
-        run: |
-          sudo touch /usr/lib/llvm-16/lib/libclang-16.so.1
+          sudo apt -o DPkg::Options::="--force-overwrite" install -y libclang$LLVM_TAG-dev
+          sudo apt -o DPkg::Options::="--force-overwrite" install -y clang$LLVM_TAG
 
       - name: Check out default branch
         uses: actions/checkout@v2
