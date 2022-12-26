@@ -23,11 +23,13 @@ if (iwyu_standalone_build)
   include(AddLLVM)
   include(HandleLLVMOptions)
 
+  set(iwyu_llvm_dir ${LLVM_DIR})
   set(iwyu_include_dirs
     ${LLVM_INCLUDE_DIRS}
     ${CLANG_INCLUDE_DIRS}
   )
 else()
+  set(iwyu_llvm_dir ${CMAKE_SOURCE_DIR})
   set(iwyu_include_dirs
     ${LLVM_SOURCE_DIR}/include
     ${LLVM_EXTERNAL_CLANG_SOURCE_DIR}/include
@@ -36,7 +38,8 @@ else()
   )
 endif()
 
-message(STATUS "IWYU: configuring for LLVM ${LLVM_VERSION}...")
+message(STATUS
+  "IWYU: configuring for LLVM ${LLVM_VERSION} from ${iwyu_llvm_dir}")
 
 # The good default is given by the llvm toolchain installation itself, but still
 # in case both static and shared libraries are available, allow to override that
@@ -67,7 +70,7 @@ if (NOT TARGET clang-resource-headers)
     add_custom_command(OUTPUT "${dst}"
       DEPENDS "${src}"
       COMMAND ${CMAKE_COMMAND} -E copy_if_different "${src}" "${dst}"
-      COMMENT "Copying clang's ${file}..."
+      COMMENT "Copying ${src}..."
     )
     list(APPEND out_files "${dst}")
   endforeach()

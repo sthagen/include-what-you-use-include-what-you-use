@@ -26,18 +26,32 @@ jobs:
           wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
           sudo add-apt-repository "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy$LLVM_TAG main"
           sudo apt update
-          sudo apt install -y ninja-build
           # Remove any base dist LLVM/Clang installations
-          sudo apt remove -y "libclang*"
-          sudo apt remove -y "clang*"
-          sudo apt remove -y "llvm*"
+          sudo apt remove -y \
+               "libclang*" \
+               "clang*" \
+               "llvm*"
           # Reinstall tagged versions
-          sudo apt install -y llvm$LLVM_TAG-dev
-          sudo apt -o DPkg::Options::="--force-overwrite" install -y libclang$LLVM_TAG-dev
-          sudo apt -o DPkg::Options::="--force-overwrite" install -y clang$LLVM_TAG
+          sudo apt install -y \
+               ninja-build \
+               llvm$LLVM_TAG-dev \
+               libclang$LLVM_TAG-dev \
+               clang$LLVM_TAG
 
-      - name: Check out default branch
-        uses: actions/checkout@v2
+      - name: Select checkout ref (PR)
+        if: github.event_name == 'pull_request'
+        run: |
+          echo "IWYU_CHECKOUT_REF=${{github.event.pull_request.head.sha}}" >> $GITHUB_ENV
+
+      - name: Select checkout ref (push/schedule)
+        if: github.event_name == 'push' || github.event_name == 'schedule'
+        run: |
+          echo "IWYU_CHECKOUT_REF=${{github.sha}}" >> $GITHUB_ENV
+
+      - name: Check out branch
+        uses: actions/checkout@v3
+        with:
+          ref: ${{env.IWYU_CHECKOUT_REF}}
 
       - name: Build include-what-you-use
         run: |
