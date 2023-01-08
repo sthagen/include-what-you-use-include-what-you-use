@@ -11,8 +11,7 @@
 
 #include <algorithm>                    // for sort, find
 #include <cstdio>                       // for snprintf
-// TODO(wan): make sure IWYU doesn't suggest <iterator>.
-#include <iterator>                     // for find
+#include <iterator>                     // for inserter
 #include <map>                          // for _Rb_tree_const_iterator, etc
 #include <utility>                      // for pair, make_pair, operator>
 #include <vector>                       // for vector, vector<>::iterator, etc
@@ -22,12 +21,10 @@
 #include "iwyu_include_picker.h"
 #include "iwyu_location_util.h"
 #include "iwyu_path_util.h"
-#include "iwyu_preprocessor.h"  // IWYU pragma: keep
+#include "iwyu_preprocessor.h"
 #include "iwyu_stl_util.h"
 #include "iwyu_string_util.h"
 #include "iwyu_verrs.h"
-// TODO(wan): remove this once the IWYU bug is fixed.
-// IWYU pragma: no_include "foo/bar/baz.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/raw_ostream.h"
 #include "clang/AST/ASTContext.h"
@@ -85,8 +82,12 @@ class OutputLine {
                    symbols_.end());
   }
 
-  size_t line_length() const { return line_.size(); }
-  bool needs_alignment() const { return !symbols_.empty(); }
+  size_t line_length() const {
+    return line_.size();
+  }
+  bool needs_alignment() const {
+    return !symbols_.empty();
+  }
   void add_prefix(const string& prefix) { line_ = prefix + line_; }
   string printable_line(size_t min_length, size_t max_length) const;
 
@@ -656,8 +657,8 @@ void IwyuFileInfo::ReportFullSymbolUse(SourceLocation use_loc,
 void IwyuFileInfo::ReportFullSymbolUse(SourceLocation use_loc,
                                        const FileEntry* dfn_file,
                                        const string& symbol) {
-  symbol_uses_.push_back(OneUse(symbol, dfn_file, 
-                                GetFilePath(dfn_file), use_loc));
+  symbol_uses_.push_back(
+      OneUse(symbol, dfn_file, GetFilePath(dfn_file), use_loc));
   LogSymbolUse("Marked full-info use of symbol", symbol_uses_.back());
 }
 
@@ -1421,9 +1422,9 @@ void CalculateIwyuForForwardDeclareUse(
 
   const NamedDecl* dfn = GetTagDefinition(use->decl());
   if (dfn) {
-    vector<string> headers
-      = GlobalIncludePicker().GetCandidateHeadersForFilepathIncludedFrom(
-          GetFilePath(dfn), GetFilePath(use->use_loc()));
+    vector<string> headers =
+        GlobalIncludePicker().GetCandidateHeadersForFilepathIncludedFrom(
+            GetFilePath(dfn), GetFilePath(use->use_loc()));
     for (const string& header : headers) {
       if (ContainsKey(desired_includes, header))
         dfn_is_in_desired_includes = true;
@@ -1487,8 +1488,8 @@ void CalculateIwyuForForwardDeclareUse(
 
   // Be sure to store as a TemplateClassDecl if we're a templated
   // class.
-  if (const ClassTemplateSpecializationDecl* spec_decl
-      = DynCastFrom(use->decl())) {
+  if (const ClassTemplateSpecializationDecl* spec_decl =
+          DynCastFrom(use->decl())) {
     use->reset_decl(spec_decl->getSpecializedTemplate());
   } else if (const CXXRecordDecl* cxx_decl = DynCastFrom(use->decl())) {
     if (cxx_decl->getDescribedClassTemplate())
@@ -1608,8 +1609,8 @@ void IwyuFileInfo::CalculateIwyuViolations(vector<OneUse>* uses) {
   // The 'effective' direct includes are defined to be the current
   // includes of associated, plus us.  This is only used to decide
   // when to give iwyu warnings.
-  const set<string> effective_direct_includes
-      = Union(associated_direct_includes, direct_includes());
+  const set<string> effective_direct_includes =
+      Union(associated_direct_includes, direct_includes());
 
   // (C2) + (C3) Find the minimal 'set cover' for all symbol uses.
   const set<string> desired_set_cover = internal::CalculateMinimalIncludes(

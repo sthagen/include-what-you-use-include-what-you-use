@@ -19,7 +19,6 @@
 #include <string>
 #include <utility>
 
-#include "llvm/ADT/ArrayRef.h"  // IWYU pragma: keep
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Triple.h"
@@ -29,13 +28,13 @@
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "clang/Basic/DiagnosticOptions.h"
+#include "clang/Basic/DiagnosticFrontend.h"
 #include "clang/Driver/Compilation.h"
 #include "clang/Driver/Driver.h"
 #include "clang/Driver/Tool.h"
 #include "clang/Frontend/CompilerInstance.h"
 #include "clang/Frontend/CompilerInvocation.h"
 #include "clang/Frontend/FrontendAction.h"
-#include "clang/Frontend/FrontendDiagnostic.h"  // IWYU pragma: keep
 #include "clang/Frontend/TextDiagnosticPrinter.h"
 
 namespace llvm {
