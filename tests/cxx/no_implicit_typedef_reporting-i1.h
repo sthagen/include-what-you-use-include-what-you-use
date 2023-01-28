@@ -1,4 +1,4 @@
-//===--- using_aliased_symbol-declare.h - test input file for iwyu --------===//
+//===--- no_implicit_typedef_reporting-i1.h - test input file for iwyu ----===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,9 +7,4 @@
 //
 //===----------------------------------------------------------------------===//
 
-class IndirectClass;
-
-namespace ns {
-void symbol();
-typedef IndirectClass Typedef;
-}  // namespace ns
+typedef int Int;

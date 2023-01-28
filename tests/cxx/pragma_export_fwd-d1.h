@@ -1,4 +1,4 @@
-//===--- using_aliased_symbol-declare.h - test input file for iwyu --------===//
+//===--- pragma_export_fwd-d1.h - test input file for iwyu ----------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,9 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-class IndirectClass;
+class FwdDecl3;  // IWYU pragma: export
 
-namespace ns {
-void symbol();
-typedef IndirectClass Typedef;
-}  // namespace ns
+// IWYU pragma: begin_exports
+class FwdDecl4;
+// IWYU pragma: end_exports

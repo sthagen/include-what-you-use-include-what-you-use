@@ -1144,7 +1144,6 @@ const Type* Desugar(const Type* type) {
   while (true) {
     // Don't desugar types that (potentially) add a name.
     if (cur->getTypeClass() == Type::Typedef ||
-        cur->getTypeClass() == Type::Using ||
         cur->getTypeClass() == Type::TemplateSpecialization) {
       return cur;
     }
@@ -1506,6 +1505,11 @@ string GetKindName(const Type* type) {
 
 string GetKindName(const TypeLoc typeloc) {
   return string(typeloc.getTypePtr()->getTypeClassName()) + "TypeLoc";
+}
+
+bool IsDeclaredInsideFunction(const Decl* decl) {
+  const DeclContext* decl_ctx = decl->getDeclContext();
+  return isa<FunctionDecl>(decl_ctx);
 }
 
 }  // namespace include_what_you_use
