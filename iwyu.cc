@@ -1858,7 +1858,7 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
         continue;
       const Type* deref_param_type =
           RemovePointersAndReferencesAsWritten(param_type);
-      if (CanIgnoreType(param_type) && CanIgnoreType(deref_param_type))
+      if (CanIgnoreType(deref_param_type))
         continue;
 
       // TODO(csilvers): remove this 'if' check when we've resolved the
@@ -2127,7 +2127,7 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
     CHECK_(base_type && "Member's base does not have a type?");
     const Type* deref_base_type  // For myvar->a, base-type will have a *
         = expr->isArrow() ? RemovePointerFromType(base_type) : base_type;
-    if (CanIgnoreType(base_type) && CanIgnoreType(deref_base_type))
+    if (CanIgnoreType(deref_base_type))
       return true;
     if (const TypedefType* typedef_type = DynCastFrom(deref_base_type)) {
       deref_base_type = DesugarDependentTypedef(typedef_type);
@@ -2232,7 +2232,7 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
       const TypeLoc& arg_tl = expr->getArgumentTypeInfo()->getTypeLoc();
       if (const auto* reftype = arg_tl.getTypePtr()->getAs<ReferenceType>()) {
         const Type* dereftype = reftype->getPointeeTypeAsWritten().getTypePtr();
-        if (!CanIgnoreType(reftype) || !CanIgnoreType(dereftype))
+        if (!CanIgnoreType(dereftype))
           ReportTypeUse(GetLocation(&arg_tl), dereftype);
       } else {
         // No need to report on non-ref types, RecursiveASTVisitor will get 'em.
@@ -2281,7 +2281,7 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
     // actual type being deleted.
     const Type* delete_ptr_type = GetTypeOf(delete_arg);
     const Type* delete_type = RemovePointerFromType(delete_ptr_type);
-    if (CanIgnoreType(delete_ptr_type) && CanIgnoreType(delete_type))
+    if (CanIgnoreType(delete_type))
       return true;
 
     if (delete_type && !IsPointerOrReferenceAsWritten(delete_type))
@@ -2546,6 +2546,23 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
       ReportTypeUse(CurrentLoc(), return_type);
     }
 
+    return true;
+  }
+
+  // The C++ spec does not allow us to apply typeid to an incomplete type.
+  // Therefore, we must report the type to be included.
+  bool VisitCXXTypeidExpr(clang::CXXTypeidExpr* expr) {
+    if (CanIgnoreCurrentASTNode())
+      return true;
+
+    QualType type;
+    if (expr->isTypeOperand()) {
+      type = expr->getTypeOperandSourceInfo()->getType();
+    } else {
+      type = expr->getExprOperand()->getType();
+    }
+
+    ReportTypeUse(CurrentLoc(), type.getTypePtr());
     return true;
   }
 
