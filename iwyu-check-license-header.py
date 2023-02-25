@@ -66,7 +66,7 @@ def make_license_header(filename, one, two):
         c -= len(filename)
         return '-' * c
 
-    firstline = '%s===--- %s %s===%s' % (two, filename, dashes(), two)
+    firstline = '%s===--- %s %s---===%s' % (two, filename, dashes(), two)
     return [firstline] + make_hdrformat(one, two)
 
 
@@ -161,9 +161,10 @@ class File(object):
         lines += after
 
         # Write back out
+        content = '\n'.join(lines)
         with open(self.filename, 'wb') as fd:
-            fd.write('\n'.join(lines))
-            fd.write('\n')
+            fd.write(content.encode('utf-8'))
+            fd.write(b'\n')
 
     def check_license_header(self):
         """ Check that the header lines follow convention.
