@@ -2942,7 +2942,7 @@ class InstantiatedTemplateVisitor
     // Among all subst-type params, we only want those in the resugar-map. If
     // we're not in the resugar-map at all, we're not a type corresponding to
     // the template being instantiated, so we can be ignored.
-    type = Desugar(type);
+    type = GetCanonicalType(type);
     return ContainsKey(resugar_map_, type);
   }
 
@@ -2971,18 +2971,24 @@ class InstantiatedTemplateVisitor
                      const char* comment = nullptr,
                      UseFlags extra_use_flags = 0) override {
     const SourceLocation actual_used_loc = GetLocOfTemplateThatProvides(decl);
-    if (actual_used_loc.isValid()) {
-      // If a template is responsible for this decl, then we don't add
-      // it to the cache; the cache is only for decls that the
-      // original caller is responsible for.
-      Base::ReportDeclUse(actual_used_loc, decl, comment, extra_use_flags);
-    } else {
+    // Report use only if template doesn't itself provide the declaration.
+    if (!actual_used_loc.isValid() ||
+        GetFileEntry(actual_used_loc) == GetFileEntry(caller_loc())) {
       // Let all the currently active types and decls know about this
       // report, so they can update their cache entries.
       for (CacheStoringScope* storer : cache_storers_)
         storer->NoteReportedDecl(decl);
       Base::ReportDeclUse(caller_loc(), decl, comment, extra_use_flags);
     }
+  }
+
+  void ReportDeclForwardDeclareUse(SourceLocation, const NamedDecl*,
+                                   const char* /*comment*/ = nullptr) override {
+    // Forward declarations make sense only when a type is explicitly written.
+    // But 'InstantiatedTemplateVisitor' is to traverse implicit template
+    // specializations, actually. (Template definitions and explicit
+    // specializations are handled by 'IwyuAstConsumer'). Because it traverses
+    // implicit stuff, it should not suggest forward declarations.
   }
 
   void ReportTypeUse(SourceLocation used_loc, const Type* type,
@@ -3070,34 +3076,6 @@ class InstantiatedTemplateVisitor
     if (!Base::TraverseTemplateSpecializationTypeLoc(typeloc))
       return false;
     return TraverseTemplateSpecializationTypeHelper(typeloc.getTypePtr());
-  }
-
-  bool TraverseSubstTemplateTypeParmTypeHelper(
-      const clang::SubstTemplateTypeParmType* type) {
-    if (CanIgnoreCurrentASTNode() ||
-        CanIgnoreType(type, IgnoreKind::ForExpansion))
-      return true;
-
-    const Type* actual_type = ResugarType(type);
-    CHECK_(actual_type && "If !CanIgnoreType(), we should be resugar-able");
-    return TraverseType(QualType(actual_type, 0));
-  }
-
-  // When we see a template argument used inside an instantiated
-  // template, we want to explore the type recursively.  For instance
-  // if we see Inner<Outer<Foo>>(), we want to recurse onto Foo.
-  bool TraverseSubstTemplateTypeParmType(
-      clang::SubstTemplateTypeParmType* type) {
-    if (!Base::TraverseSubstTemplateTypeParmType(type))
-      return false;
-    return TraverseSubstTemplateTypeParmTypeHelper(type);
-  }
-
-  bool TraverseSubstTemplateTypeParmTypeLoc(
-      clang::SubstTemplateTypeParmTypeLoc typeloc) {
-    if (!Base::TraverseSubstTemplateTypeParmTypeLoc(typeloc))
-      return false;
-    return TraverseSubstTemplateTypeParmTypeHelper(typeloc.getTypePtr());
   }
 
   // Check whether a use of a template parameter is a full use.
@@ -3380,7 +3358,7 @@ class InstantiatedTemplateVisitor
   // class was instantiated) or not.  We store this in resugar_map by
   // having the value be nullptr.
   bool IsDefaultTemplateParameter(const Type* type) const {
-    type = Desugar(type);
+    type = GetCanonicalType(type);
     return ContainsKeyValue(resugar_map_, type, static_cast<Type*>(nullptr));
   }
 
@@ -3389,7 +3367,7 @@ class InstantiatedTemplateVisitor
   // If we're not in the resugar-map, then we weren't canonicalized,
   // so we can just use the input type unchanged.
   const Type* ResugarType(const Type* type) const {
-    type = Desugar(type);
+    type = GetCanonicalType(type);
     // If we're the resugar-map but with a value of nullptr, it means
     // we're a default template arg, which means we don't have anything
     // to resugar to.  So just return the input type.

@@ -9,7 +9,7 @@
 
 #include "explicit_instantiation-template_direct.h"
 #include "explicit_instantiation2-template_helpers.h"
-#include "explicit_instantiation2-template_short_direct.h"
+#include "explicit_instantiation2-template_direct.h"
 
 // These tests verify that a dependent explicit instantiation declaration is
 // always required when the main template is also needed, but not otherwise.
@@ -19,13 +19,13 @@
 //        definition (2), as it affects the semantics.
 // 2: Explicit instantiation definition.
 // 3: Full use in a template, provided as an explicit parameter.
-// 4: Fwd-decl use in a template, provided as an explicit parameter.
 // 5: Full use in a template, provided as an default parameter.
 // 7: Full use in a template, provided as a template template parameter.
 // 8: Fwd-decl use in a template, provided as a template template parameter.
 //
 // Negative scenarios, where the dependent template specialization is not
 // required, or it does not provide an explicit instantiation:
+// 4: Fwd-decl use in a template, provided as an explicit parameter.
 // 6: Fwd-decl use in a template, provided as a default parameter.
 // 9: Implicit instantiation of Template<int>
 // 10: Specialization of Template<T>
@@ -34,16 +34,16 @@
 
 
 // IWYU: Template is...*explicit_instantiation-template.h
-// IWYU: Template is...*template_short.h.*for explicit instantiation
-Template<short> t1a; // 1a
+// IWYU: Template is...*template_bool.h.*for explicit instantiation
+Template<bool> t1a; // 1a
 
 // IWYU: Template is...*explicit_instantiation-template.h
-// IWYU: Template is...*template_short.h.*for explicit instantiation
-template class Template<short>;  // 2
+// IWYU: Template is...*template_bool.h.*for explicit instantiation
+template class Template<bool>;  // 2
 
 // IWYU: Template is...*explicit_instantiation-template.h
-// IWYU: Template is...*template_short.h.*for explicit instantiation
-Template<short> t1b; // 1b
+// IWYU: Template is...*template_bool.h.*for explicit instantiation
+Template<bool> t1b; // 1b
 
 // IWYU: Template is...*explicit_instantiation-template.h
 // IWYU: Template is...*template_short.h.*for explicit instantiation
@@ -53,7 +53,6 @@ FullUseArg<
     // IWYU: Template is...*explicit_instantiation-template.h
     t3; // 3
 
-// IWYU: Template is...*template_short.h.*for explicit instantiation
 FwdDeclUseArg<
     // IWYU: Template needs a declaration...*
     Template<short>>
@@ -89,14 +88,16 @@ TemplateAsDefaultFullProvided<> t11; // 11
 
 tests/cxx/explicit_instantiation2.cc should add these lines:
 #include "explicit_instantiation-template.h"
+#include "explicit_instantiation2-template_bool.h"
 #include "explicit_instantiation2-template_short.h"
 
 tests/cxx/explicit_instantiation2.cc should remove these lines:
 - #include "explicit_instantiation-template_direct.h"  // lines XX-XX
-- #include "explicit_instantiation2-template_short_direct.h"  // lines XX-XX
+- #include "explicit_instantiation2-template_direct.h"  // lines XX-XX
 
 The full include-list for tests/cxx/explicit_instantiation2.cc:
 #include "explicit_instantiation-template.h"  // for Template
+#include "explicit_instantiation2-template_bool.h"  // for Template
 #include "explicit_instantiation2-template_helpers.h"  // for FullUseArg, FwdDeclUseArg, TemplateAsDefaultFull, TemplateAsDefaultFullProvided, TemplateAsDefaultFwd, TemplateTemplateArgShortFull, TemplateTemplateArgShortFwd
 #include "explicit_instantiation2-template_short.h"  // for Template
 
