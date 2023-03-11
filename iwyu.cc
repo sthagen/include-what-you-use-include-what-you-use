@@ -1652,8 +1652,7 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
   // with the warning message that iwyu emits.
   virtual void ReportTypeUse(SourceLocation used_loc, const Type* type,
                              const char* comment = nullptr) {
-    // TODO(csilvers): figure out if/when calling CanIgnoreType() is correct.
-    if (!type)
+    if (CanIgnoreType(type))
       return;
 
     // Enum type uses can be ignored. Their size is known (either implicitly
@@ -2105,9 +2104,6 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
     //    typedef Foo* FooPtr; ... static_cast<FooPtr>(...) ...
     for (const Type* type : required_full_types) {
       const Type* deref_type = RemovePointersAndReferences(type);
-      if (CanIgnoreType(deref_type))
-        continue;
-
       ReportTypeUse(CurrentLoc(), deref_type);
     }
 
@@ -2154,10 +2150,7 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
     if (CanIgnoreCurrentASTNode())
       return true;
 
-    const Type* element_type = GetTypeOf(expr);
-    if (CanIgnoreType(element_type))
-      return true;
-    ReportTypeUse(CurrentLoc(), element_type);
+    ReportTypeUse(CurrentLoc(), GetTypeOf(expr));
     return true;
   }
 
@@ -2179,8 +2172,7 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
         // It's a pointer-typed expression. Get the pointed-to type (which may
         // itself be a pointer) and report it.
         const Type* deref_type = pointer_type->getPointeeType().getTypePtr();
-        if (!CanIgnoreType(deref_type))
-          ReportTypeUse(CurrentLoc(), deref_type);
+        ReportTypeUse(CurrentLoc(), deref_type);
       }
     }
 
@@ -2201,10 +2193,7 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
       clang::QualType qual_type = arg->getType();
       const Type* type = qual_type.getTypePtr();
       const Type* deref_type = RemovePointersAndReferencesAsWritten(type);
-
-      if (!CanIgnoreType(deref_type)) {
-        ReportTypeUse(CurrentLoc(), deref_type);
-      }
+      ReportTypeUse(CurrentLoc(), deref_type);
     }
 
     return true;
@@ -2232,18 +2221,16 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
       const TypeLoc& arg_tl = expr->getArgumentTypeInfo()->getTypeLoc();
       if (const auto* reftype = arg_tl.getTypePtr()->getAs<ReferenceType>()) {
         const Type* dereftype = reftype->getPointeeTypeAsWritten().getTypePtr();
-        if (!CanIgnoreType(dereftype))
-          ReportTypeUse(GetLocation(&arg_tl), dereftype);
+        ReportTypeUse(GetLocation(&arg_tl), dereftype);
       } else {
         // No need to report on non-ref types, RecursiveASTVisitor will get 'em.
       }
     } else {
       const Expr* arg_expr = expr->getArgumentExpr();
       const Type* dereftype = arg_expr->getType().getTypePtr();
-      if (!CanIgnoreType(dereftype))
-        // This reports even if the expr ends up not being a reference, but
-        // that's ok (if potentially redundant).
-        ReportTypeUse(GetLocation(arg_expr->IgnoreParenImpCasts()), dereftype);
+      // This reports even if the expr ends up not being a reference, but
+      // that's ok (if potentially redundant).
+      ReportTypeUse(GetLocation(arg_expr->IgnoreParenImpCasts()), dereftype);
     }
     return true;
   }
@@ -2263,8 +2250,7 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
       // (the 'a' in 'a << b' or the 'MACRO' in 'MACRO << b'), rather
       // than our location (which is the '<<').  That way, we properly
       // situate the owner when it's a macro.
-      if (!CanIgnoreType(owner_type))
-        ReportTypeUse(GetLocation(owner_expr), owner_type);
+      ReportTypeUse(GetLocation(owner_expr), owner_type);
     }
     return true;
   }
@@ -2281,9 +2267,6 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
     // actual type being deleted.
     const Type* delete_ptr_type = GetTypeOf(delete_arg);
     const Type* delete_type = RemovePointerFromType(delete_ptr_type);
-    if (CanIgnoreType(delete_type))
-      return true;
-
     if (delete_type && !IsPointerOrReferenceAsWritten(delete_type))
       ReportTypeUse(CurrentLoc(), delete_type);
 
@@ -2359,8 +2342,7 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
       if (current_ast_node()->template HasAncestorOfType<CallExpr>() &&
           ContainsKey(GetCallerResponsibleTypesForAutocast(current_ast_node()),
                       RemoveReferenceAsWritten(type))) {
-        if (!CanIgnoreType(type))
-          ReportTypeUse(CurrentLoc(), type);
+        ReportTypeUse(CurrentLoc(), type);
       }
     }
 
@@ -2900,6 +2882,9 @@ class InstantiatedTemplateVisitor
 
   bool CanIgnoreType(const Type* type, IgnoreKind ignore_kind =
                                            IgnoreKind::ForUse) const override {
+    if (!type)
+      return true;
+
     if (!IsTypeInteresting(type))
       return true;
 
@@ -2996,6 +2981,9 @@ class InstantiatedTemplateVisitor
     // clang desugars template types, so Foo<MyTypedef>() gets turned
     // into Foo<UnderlyingType>().  Try to convert back.
     type = ResugarType(type);
+    if (CanIgnoreType(type))
+      return;
+
     for (CacheStoringScope* storer : cache_storers_)
       storer->NoteReportedType(type);
     Base::ReportTypeUse(caller_loc(), type, comment);
@@ -3203,9 +3191,9 @@ class InstantiatedTemplateVisitor
           return;  // avoid recursion & repetition
         traversed_decls_.insert(decl);
 
-        VERRS(6)
-            << "Recursively traversing " << PrintableDecl(cts_decl)
-            << " which was full-used and involves a known template param\n";
+        VERRS(6) << "Recursively traversing " << PrintableDecl(cts_decl)
+                 << " which was full-used and does not involve a known"
+                 << " template param\n";
         TraverseDecl(const_cast<ClassTemplateSpecializationDecl*>(cts_decl));
       }
     }
@@ -3257,23 +3245,63 @@ class InstantiatedTemplateVisitor
   void ReportExplicitInstantiations(const Type* type) {
     const auto* decl = dyn_cast_or_null<ClassTemplateSpecializationDecl>(
         TypeToDeclAsWritten(type));
-
     if (decl == nullptr)
+      return;
+
+    if (IsProvidedByTemplate(decl))
       return;
 
     // Go through all previous redecls and filter out those that are not
     // explicit template instantiations or already provided by the template.
+    std::vector<const CXXRecordDecl*> explicit_inst_decls;
     for (const NamedDecl* redecl : decl->redecls()) {
-      if (!IsExplicitInstantiation(redecl) ||
-          !GlobalSourceManager()->isBeforeInTranslationUnit(
-              redecl->getLocation(), caller_loc()) ||
-          IsProvidedByTemplate(decl))
-        continue;
-
-      // Report the specific decl that points to the explicit instantiation
-      Base::ReportDeclUse(caller_loc(), redecl, "(for explicit instantiation)",
-                          UF_ExplicitInstantiation);
+      if (IsExplicitInstantiation(redecl) &&
+          GlobalSourceManager()->isBeforeInTranslationUnit(
+            redecl->getLocation(), caller_loc())) {
+        // Earlier checks imply that this is a CXXRecordDecl.
+        explicit_inst_decls.push_back(cast<CXXRecordDecl>(redecl));
+      }
     }
+
+    if (explicit_inst_decls.empty())
+      return;
+
+    // If there is a redecl in the same file, prefer that.
+    for (const CXXRecordDecl* redecl : explicit_inst_decls) {
+      if (GetFileEntry(redecl->getLocation()) == GetFileEntry(caller_loc())) {
+        VERRS(6) << "Found explicit instantiation declaration or definition in "
+                    "same file\n";
+        Base::ReportDeclUse(caller_loc(), redecl,
+                            "(for explicit instantiation)",
+                            UF_ExplicitInstantiation);
+        return;
+      }
+    }
+
+    // Otherwise, if there is any redecl that is an explicit instantiation
+    // _declaration_, prefer that, because a declaration should be cheaper to
+    // process than a definition. The language guarantees that there is a
+    // definition available somewhere in the program, or the linker will
+    // complain.
+    for (const CXXRecordDecl* redecl : explicit_inst_decls) {
+      if (redecl->getTemplateSpecializationKind() ==
+          clang::TSK_ExplicitInstantiationDeclaration) {
+        VERRS(6) << "Found explicit instantiation declaration\n";
+        Base::ReportDeclUse(caller_loc(), redecl,
+                            "(for explicit instantiation)",
+                            UF_ExplicitInstantiation);
+        return;
+      }
+    }
+
+    // If nothing more specific was found, arbitrarily pick the first one.
+    if (explicit_inst_decls.size() > 1) {
+      VERRS(6) << "Found " << explicit_inst_decls.size() << " "
+               << "explicit instantiation decls; reporting the first one\n";
+    }
+    Base::ReportDeclUse(caller_loc(), explicit_inst_decls[0],
+                        "(for explicit instantiation)",
+                        UF_ExplicitInstantiation);
   }
 
   // If constructing an object, check the type we're constructing.
