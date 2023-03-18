@@ -314,7 +314,7 @@ class BaseAstVisitor : public RecursiveASTVisitor<Derived> {
   virtual string GetSymbolAnnotation() const = 0;
 
   //------------------------------------------------------------
-  // (1) Maintain current_ast_node_
+  // (1) Maintain current_ast_node_ and print each node.
 
   // How subclasses can access current_ast_node_;
   const ASTNode* current_ast_node() const {
@@ -326,29 +326,45 @@ class BaseAstVisitor : public RecursiveASTVisitor<Derived> {
   void set_current_ast_node(ASTNode* an) { current_ast_node_ = an; }
 
   bool TraverseDecl(Decl* decl) {
+    if (!decl)
+      return true;
     if (current_ast_node_ && current_ast_node_->StackContainsContent(decl))
       return true;               // avoid recursion
     ASTNode node(decl);
     CurrentASTNodeUpdater canu(&current_ast_node_, &node);
+    if (ShouldPrintSymbolFromCurrentFile()) {
+      errs() << AnnotatedName(GetKindName(decl)) << PrintablePtr(decl)
+             << PrintableDecl(decl) << "\n";
+    }
     return Base::TraverseDecl(decl);
   }
 
   bool TraverseStmt(Stmt* stmt) {
+    if (!stmt)
+      return true;
     if (current_ast_node_ && current_ast_node_->StackContainsContent(stmt))
       return true;               // avoid recursion
     ASTNode node(stmt);
     CurrentASTNodeUpdater canu(&current_ast_node_, &node);
+    if (ShouldPrintSymbolFromCurrentFile()) {
+      errs() << AnnotatedName(GetKindName(stmt)) << PrintablePtr(stmt)
+             << PrintableStmt(stmt) << "\n";
+    }
     return Base::TraverseStmt(stmt);
   }
 
   bool TraverseType(QualType qualtype) {
     if (qualtype.isNull())
-      return Base::TraverseType(qualtype);
+      return true;
     const Type* type = qualtype.getTypePtr();
     if (current_ast_node_ && current_ast_node_->StackContainsContent(type))
       return true;               // avoid recursion
     ASTNode node(type);
     CurrentASTNodeUpdater canu(&current_ast_node_, &node);
+    if (ShouldPrintSymbolFromCurrentFile()) {
+      errs() << AnnotatedName(GetKindName(type)) << PrintablePtr(type)
+             << PrintableType(type) << "\n";
+    }
     return Base::TraverseType(qualtype);
   }
 
@@ -369,46 +385,72 @@ class BaseAstVisitor : public RecursiveASTVisitor<Derived> {
     if (typeloc.getAs<QualifiedTypeLoc>()) {
       typeloc = typeloc.getUnqualifiedLoc();
     }
+    if (typeloc.isNull())
+      return true;
     if (current_ast_node_ && current_ast_node_->StackContainsContent(&typeloc))
       return true;               // avoid recursion
     ASTNode node(&typeloc);
     CurrentASTNodeUpdater canu(&current_ast_node_, &node);
+    if (ShouldPrintSymbolFromCurrentFile()) {
+      errs() << AnnotatedName(GetKindName(typeloc)) << PrintableTypeLoc(typeloc)
+             << "\n";
+    }
     return Base::TraverseTypeLoc(typeloc);
   }
 
   bool TraverseNestedNameSpecifier(NestedNameSpecifier* nns) {
-    if (nns == nullptr)
+    if (!nns)
       return true;
     ASTNode node(nns);
     CurrentASTNodeUpdater canu(&current_ast_node_, &node);
+    if (ShouldPrintSymbolFromCurrentFile()) {
+      errs() << AnnotatedName("NestedNameSpecifier")
+             << PrintablePtr(nns) << PrintableNestedNameSpecifier(nns) << "\n";
+    }
     if (!this->getDerived().VisitNestedNameSpecifier(nns))
       return false;
     return Base::TraverseNestedNameSpecifier(nns);
   }
 
   bool TraverseNestedNameSpecifierLoc(NestedNameSpecifierLoc nns_loc) {
-    if (!nns_loc)   // using NNSLoc::operator bool()
+    NestedNameSpecifier* nns = nns_loc.getNestedNameSpecifier();
+    if (!nns)
       return true;
     ASTNode node(&nns_loc);
     CurrentASTNodeUpdater canu(&current_ast_node_, &node);
+    if (ShouldPrintSymbolFromCurrentFile()) {
+      errs() << AnnotatedName("NestedNameSpecifier")
+             << PrintablePtr(nns) << PrintableNestedNameSpecifier(nns) << "\n";
+    }
     // TODO(csilvers): have VisitNestedNameSpecifierLoc instead.
-    if (!this->getDerived().VisitNestedNameSpecifier(
-            nns_loc.getNestedNameSpecifier()))
+    if (!this->getDerived().VisitNestedNameSpecifier(nns))
       return false;
     return Base::TraverseNestedNameSpecifierLoc(nns_loc);
   }
 
   bool TraverseTemplateName(TemplateName template_name) {
+    if (template_name.isNull())
+      return true;
     ASTNode node(&template_name);
     CurrentASTNodeUpdater canu(&current_ast_node_, &node);
+    if (ShouldPrintSymbolFromCurrentFile()) {
+      errs() << AnnotatedName("TemplateName")
+             << PrintableTemplateName(template_name) << "\n";
+    }
     if (!this->getDerived().VisitTemplateName(template_name))
       return false;
     return Base::TraverseTemplateName(template_name);
   }
 
   bool TraverseTemplateArgument(const TemplateArgument& arg) {
+    if (arg.isNull())
+      return true;
     ASTNode node(&arg);
     CurrentASTNodeUpdater canu(&current_ast_node_, &node);
+    if (ShouldPrintSymbolFromCurrentFile()) {
+      errs() << AnnotatedName("TemplateArgument")
+             << PrintablePtr(&arg) << PrintableTemplateArgument(arg) << "\n";
+    }
     if (!this->getDerived().VisitTemplateArgument(arg))
       return false;
     return Base::TraverseTemplateArgument(arg);
@@ -417,9 +459,32 @@ class BaseAstVisitor : public RecursiveASTVisitor<Derived> {
   bool TraverseTemplateArgumentLoc(const TemplateArgumentLoc& argloc) {
     ASTNode node(&argloc);
     CurrentASTNodeUpdater canu(&current_ast_node_, &node);
+    if (ShouldPrintSymbolFromCurrentFile()) {
+      errs() << AnnotatedName("TemplateArgumentLoc")
+             << PrintablePtr(&argloc) << PrintableTemplateArgumentLoc(argloc)
+             << "\n";
+    }
     if (!this->getDerived().VisitTemplateArgumentLoc(argloc))
       return false;
     return Base::TraverseTemplateArgumentLoc(argloc);
+  }
+
+  // We have a few Visit methods that RecursiveASTVisitor does not. Provide
+  // empty default implementations.
+  bool VisitNestedNameSpecifier(NestedNameSpecifier*) {
+    return true;
+  }
+
+  bool VisitTemplateName(TemplateName) {
+    return true;
+  }
+
+  bool VisitTemplateArgument(const TemplateArgument&) {
+    return true;
+  }
+
+  bool VisitTemplateArgumentLoc(const TemplateArgumentLoc&) {
+    return true;
   }
 
   //------------------------------------------------------------
@@ -443,7 +508,7 @@ class BaseAstVisitor : public RecursiveASTVisitor<Derived> {
   }
 
   //------------------------------------------------------------
-  // (3) Print each node we're visiting.
+  // (3) Utilities for logging
 
   // The current file location, the class or decl or type name in
   // brackets, along with annotations such as the indentation depth,
@@ -466,75 +531,6 @@ class BaseAstVisitor : public RecursiveASTVisitor<Derived> {
       return buffer;
     }
     return "";
-  }
-
-  // The top-level Decl class.  All Decls call this visitor (in
-  // addition to any more-specific visitors that apply for a
-  // particular decl).
-  bool VisitDecl(clang::Decl* decl) {
-    if (ShouldPrintSymbolFromCurrentFile()) {
-      errs() << AnnotatedName(GetKindName(decl)) << PrintablePtr(decl)
-             << PrintableDecl(decl) << "\n";
-    }
-    return true;
-  }
-
-  bool VisitStmt(clang::Stmt* stmt) {
-    if (ShouldPrintSymbolFromCurrentFile()) {
-      errs() << AnnotatedName(GetKindName(stmt)) << PrintablePtr(stmt)
-             << PrintableStmt(stmt) << "\n";
-    }
-    return true;
-  }
-
-  bool VisitType(clang::Type* type) {
-    if (ShouldPrintSymbolFromCurrentFile()) {
-      errs() << AnnotatedName(GetKindName(type)) << PrintablePtr(type)
-             << PrintableType(type) << "\n";
-    }
-    return true;
-  }
-
-  // Make sure our logging message shows we're in the TypeLoc hierarchy.
-  bool VisitTypeLoc(clang::TypeLoc typeloc) {
-    if (ShouldPrintSymbolFromCurrentFile()) {
-      errs() << AnnotatedName(GetKindName(typeloc)) << PrintableTypeLoc(typeloc)
-             << "\n";
-    }
-    return true;
-  }
-
-  bool VisitNestedNameSpecifier(NestedNameSpecifier* nns) {
-    if (ShouldPrintSymbolFromCurrentFile()) {
-      errs() << AnnotatedName("NestedNameSpecifier")
-             << PrintablePtr(nns) << PrintableNestedNameSpecifier(nns) << "\n";
-    }
-    return true;
-  }
-
-  bool VisitTemplateName(TemplateName template_name) {
-    if (ShouldPrintSymbolFromCurrentFile()) {
-      errs() << AnnotatedName("TemplateName")
-             << PrintableTemplateName(template_name) << "\n";
-    }
-    return true;
-  }
-
-  bool VisitTemplateArgument(const TemplateArgument& arg) {
-    if (ShouldPrintSymbolFromCurrentFile()) {
-      errs() << AnnotatedName("TemplateArgument")
-             << PrintablePtr(&arg) << PrintableTemplateArgument(arg) << "\n";
-    }
-    return true;
-  }
-
-  bool VisitTemplateArgumentLoc(const TemplateArgumentLoc& argloc) {
-    if (ShouldPrintSymbolFromCurrentFile()) {
-      errs() << AnnotatedName("TemplateArgumentLoc")
-             << PrintablePtr(&argloc) << PrintableTemplateArgumentLoc(argloc)
-             << "\n";
-    }
-    return true;
   }
 
   //------------------------------------------------------------
@@ -952,11 +948,11 @@ class AstFlattenerVisitor : public BaseAstVisitor<AstFlattenerVisitor> {
   }
 
   bool ShouldPrintSymbolFromCurrentFile() const override {
-    return false;
+    return ShouldPrint(7);
   }
 
   string GetSymbolAnnotation() const override {
-    return "[Uninstantiated template AST-node] ";
+    return " in uninstantiated tpl";
   }
 
   //------------------------------------------------------------
@@ -978,7 +974,6 @@ class AstFlattenerVisitor : public BaseAstVisitor<AstFlattenerVisitor> {
   }
 
   bool VisitTypeLoc(TypeLoc typeloc) {
-    VERRS(7) << GetSymbolAnnotation() << PrintableTypeLoc(typeloc) << "\n";
     seen_nodes_.Add(typeloc);
     return true;
   }
@@ -989,31 +984,22 @@ class AstFlattenerVisitor : public BaseAstVisitor<AstFlattenerVisitor> {
   }
 
   bool VisitTemplateName(TemplateName tpl_name) {
-    VERRS(7) << GetSymbolAnnotation()
-             << PrintableTemplateName(tpl_name) << "\n";
     seen_nodes_.Add(tpl_name);
     return true;
   }
 
   bool VisitTemplateArgument(const TemplateArgument& tpl_arg) {
-    VERRS(7) << GetSymbolAnnotation()
-             << PrintableTemplateArgument(tpl_arg) << "\n";
     seen_nodes_.Add(tpl_arg);
     return true;
   }
 
   bool VisitTemplateArgumentLoc(const TemplateArgumentLoc& tpl_argloc) {
-    VERRS(7) << GetSymbolAnnotation()
-             << PrintableTemplateArgumentLoc(tpl_argloc) << "\n";
     seen_nodes_.Add(tpl_argloc);
     return true;
   }
 
   bool TraverseImplicitDestructorCall(clang::CXXDestructorDecl* decl,
                                       const Type* type) {
-    VERRS(7) << GetSymbolAnnotation() << "[implicit dtor] "
-             << static_cast<void*>(decl) << " "
-             << PrintableDecl(decl) << "\n";
     AddAstNodeAsPointer(decl);
     return Base::TraverseImplicitDestructorCall(decl, type);
   }
@@ -1021,9 +1007,6 @@ class AstFlattenerVisitor : public BaseAstVisitor<AstFlattenerVisitor> {
   bool HandleFunctionCall(clang::FunctionDecl* callee,
                           const clang::Type* parent_type,
                           const clang::Expr* calling_expr) {
-    VERRS(7) << GetSymbolAnnotation() << "[function call] "
-             << static_cast<void*>(callee) << " "
-             << PrintableDecl(callee) << "\n";
     AddAstNodeAsPointer(callee);
     return Base::HandleFunctionCall(callee, parent_type, calling_expr);
   }
@@ -1036,10 +1019,6 @@ class AstFlattenerVisitor : public BaseAstVisitor<AstFlattenerVisitor> {
   }
 
   void AddCurrentAstNodeAsPointer() {
-    if (ShouldPrint(7)) {
-      errs() << GetSymbolAnnotation() << current_ast_node()->GetAs<void>()
-             << " " << PrintableASTNode(current_ast_node()) << "\n";
-    }
     AddAstNodeAsPointer(current_ast_node()->GetAs<void>());
   }
 
