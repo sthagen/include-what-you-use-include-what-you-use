@@ -167,6 +167,7 @@ using clang::Decl;
 using clang::DeclContext;
 using clang::DeclRefExpr;
 using clang::DeducedTemplateSpecializationType;
+using clang::ElaboratedTypeLoc;
 using clang::EnumConstantDecl;
 using clang::EnumDecl;
 using clang::EnumType;
@@ -1353,7 +1354,7 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
   // types (which may have many component-types if it's a templated
   // type) for which the code-author has made this decision.
   bool CodeAuthorWantsJustAForwardDeclare(const Type* type,
-                                          SourceLocation use_loc) {
+                                          SourceLocation use_loc) const {
     const NamedDecl* decl = TypeToDeclAsWritten(type);
     if (decl == nullptr)   // only class-types are candidates for returning true
       return false;
@@ -1437,7 +1438,7 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
   }
 
   set<const Type*> GetCallerResponsibleTypesForTypedef(
-      const TypedefNameDecl* decl) {
+      const TypedefNameDecl* decl) const {
     set<const Type*> retval;
     const Type* underlying_type = decl->getUnderlyingType().getTypePtr();
     // If the underlying type is itself a typedef, we recurse.
@@ -1469,7 +1470,7 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
   // ast_node is the node for the autocast CastExpr.  We use it to get
   // the parent CallExpr to figure out what function is being called.
   set<const Type*> GetCallerResponsibleTypesForAutocast(
-      const ASTNode* ast_node) {
+      const ASTNode* ast_node) const {
     while (ast_node && !ast_node->IsA<CallExpr>())
       ast_node = ast_node->parent();
     CHECK_(ast_node && "Should only check Autocast if under a CallExpr");
@@ -1523,7 +1524,7 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
   }
 
   set<const Type*> GetCallerResponsibleTypesForFnReturn(
-      const FunctionDecl* decl) {
+      const FunctionDecl* decl) const {
     set<const Type*> retval;
     const Type* return_type = Desugar(decl->getReturnType().getTypePtr());
     if (CodeAuthorWantsJustAForwardDeclare(return_type, GetLocation(decl))) {
@@ -2666,12 +2667,6 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
 
         parent_type = GetTypeOf(decl);
       } else if (const auto *decl = ast_node->GetParentAs<TypeDecl>()) {
-        // Elaborated types in type decls are always forward-declarable
-        // (and usually count as forward declarations themselves).
-        if (IsElaboratedTypeSpecifier(ast_node)) {
-          return true;
-        }
-
         // If we ourselves are a forward-decl -- that is, we're the type
         // component of a forward-declaration (which would be our parent
         // AST node) -- then we're forward-declarable by definition.
@@ -4207,6 +4202,15 @@ class IwyuAstConsumer
     return Base::VisitTemplateSpecializationType(type);
   }
 
+  bool VisitElaboratedTypeLoc(ElaboratedTypeLoc type_loc) {
+    if (type_loc.getTypePtr()->getKeyword() != clang::ETK_None) {
+      preprocessor_info()
+          .FileInfoFor(CurrentFileEntry())
+          ->AddElaboratedType(type_loc);
+    }
+    return Base::VisitElaboratedTypeLoc(type_loc);
+  }
+
   // --- Visitors defined by BaseASTVisitor (not RecursiveASTVisitor).
 
   bool VisitTemplateName(TemplateName template_name) {
@@ -4295,8 +4299,7 @@ class IwyuAction : public ASTFrontendAction {
       CompilerInstance& compiler,  // NOLINT
       llvm::StringRef /* dummy */) override {
     // Do this first thing after getting our hands on a CompilerInstance.
-    InitGlobals(&compiler.getSourceManager(),
-                &compiler.getPreprocessor().getHeaderSearchInfo());
+    InitGlobals(compiler);
 
     auto* const preprocessor_consumer = new IwyuPreprocessorInfo();
     compiler.getPreprocessor().addPPCallbacks(
