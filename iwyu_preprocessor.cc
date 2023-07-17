@@ -326,6 +326,14 @@ void IwyuPreprocessorInfo::HandlePragmaComment(SourceRange comment_range) {
     return;
   }
 
+  if (MatchOneToken(tokens, "always_keep", 1, begin_loc)) {
+    always_keep_files_.insert(this_file_entry);
+    ERRSYM(this_file_entry)
+        << "Marking include " << GetFilePath(this_file_entry)
+        << " as always-keep\n";
+    return;
+  }
+
   // "keep" and "export" are handled in MaybeProtectInclude.
   if (!MatchOneToken(tokens, "keep", 1, begin_loc)
       && !MatchOneToken(tokens, "export", 1, begin_loc)) {
@@ -473,11 +481,9 @@ void IwyuPreprocessorInfo::MaybeProtectInclude(
   } else if (FileInfoFor(includee)->is_pch_in_code()) {
     protect_reason = "pch in code";
 
-  // There's one more place we keep the #include: if our file re-exports it.
-  // (A decision to re-export an #include counts as a "use" of it.)
-  // But we need to finalize all #includes before we can test that,
-  // so we do it in a separate function, ProtectReexportIncludes, below.
-
+    // There's a few more places where we want to keep the #include, but we need
+    // to finalize all #includes before we can test them, so we do it in a
+    // separate function, FinalizeProtectedIncludes, below.
   }
 
   if (!protect_reason.empty()) {
@@ -490,20 +496,31 @@ void IwyuPreprocessorInfo::MaybeProtectInclude(
   }
 }
 
-static void ProtectReexportIncludes(
-    map<const FileEntry*, IwyuFileInfo>* file_info_map) {
-  for (map<const FileEntry*, IwyuFileInfo>::iterator
-           it = file_info_map->begin(); it != file_info_map->end(); ++it) {
-    IwyuFileInfo& includer = it->second;
-    set<const FileEntry*> incs = includer.direct_includes_as_fileentries();
-    const string includer_path = GetFilePath(it->first);
-    for (const FileEntry* include : incs) {
+void IwyuPreprocessorInfo::FinalizeProtectedIncludes() {
+  for (auto& entry : iwyu_file_info_map_) {
+    const FileEntry* includer_file = entry.first;
+    IwyuFileInfo& includer = entry.second;
+    const string includer_path = GetFilePath(includer_file);
+
+    for (const FileEntry* include : includer.direct_includes_as_fileentries()) {
       const string includee_path = GetFilePath(include);
       if (GlobalIncludePicker().HasMapping(includee_path, includer_path)) {
+        // If includer re-exports includee, that counts as a "use" of it, so
+        // protect the include.
         includer.ReportIncludeFileUse(include,
                                       ConvertToQuotedInclude(includee_path));
-        ERRSYM(it->first) << "Marked dep: " << includer_path << " needs to keep"
-                          << " " << includee_path << " (reason: re-exports)\n";
+        ERRSYM(includer_file)
+            << "Marked dep: " << includer_path << " needs to keep "
+            << includee_path << " (reason: re-exports)\n";
+      } else if (always_keep_files_.count(include) > 0) {
+        // Includee itself contains an "always_keep" pragma that protects it
+        // from removal in all includers.
+        includer.ReportIncludeFileUse(include,
+                                      ConvertToQuotedInclude(includee_path));
+        includer.ReportKnownDesiredFile(include);
+        ERRSYM(includer_file)
+            << "Marked dep: " << includer_path << " needs to keep "
+            << includee_path << " (reason: always_keep pragma)\n";
       }
     }
   }
@@ -1023,7 +1040,7 @@ void IwyuPreprocessorInfo::HandlePreprocessingDone() {
     file_info_map_entry.second.HandlePreprocessingDone();
   }
   MutableGlobalIncludePicker()->FinalizeAddedIncludes();
-  ProtectReexportIncludes(&iwyu_file_info_map_);
+  FinalizeProtectedIncludes();
   PopulateIntendsToProvideMap();
   PopulateTransitiveIncludeMap();
 }

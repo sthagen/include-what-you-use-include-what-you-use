@@ -286,6 +286,7 @@ class IwyuPreprocessorInfo : public clang::PPCallbacks,
                                    set<const clang::FileEntry*>* retval) const;
   void PopulateIntendsToProvideMap();
   void PopulateTransitiveIncludeMap();
+  void FinalizeProtectedIncludes();
 
   // Return true if at the current point in the parse of the given file,
   // there is a pending "begin_exports" pragma.
@@ -382,6 +383,10 @@ class IwyuPreprocessorInfo : public clang::PPCallbacks,
   // other places because it is unclear which inclusion directive filename
   // location corresponds to.
   clang::SourceLocation include_filename_loc_;
+
+  // Keeps track of which files have the "always_keep" pragma, so they can be
+  // marked as such for all includers.
+  std::set<const clang::FileEntry*> always_keep_files_;
 };
 
 }  // namespace include_what_you_use
