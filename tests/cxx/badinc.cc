@@ -133,15 +133,8 @@ int i1_macro_symbol_with_value_and_value2_var2;
 #endif
 
 // Using declarations and statements.
-// TODO(csilvers): I don't see a consistent way to say whether
-// "i1_ns2" is an iwyu violation or not, since namespaces can be
-// re-opened in many different files.  So let this go, even though all
-// uses of this namespace are in badinc-i1.h; we'll get the iwyu
-// violation later when we try to use symbols from i1_ns2.
-// IWYU: i1_ns2 is defined in...*which isn't directly #included.
 using namespace i1_ns2;
 using i1_ns3::i1_int_global3;
-// IWYU: i1_ns4 is...*badinc-i1.h
 namespace cc_ns_alias = i1_ns4;
 using i1_ns::I1_NamespaceStruct;
 // IWYU: i1_ns::I1_NamespaceTemplateFn is...*badinc-i1.h
@@ -194,8 +187,6 @@ typedef I1_Class Cc_typedef_array[kI1ConstInt];
 // definition even of I2_Class, since we don't know if clients will be
 // using the no-arg Cc_tpl_typedef ctor, which requires the full
 // definition of I2_Class.
-// IWYU: I1_Class needs a declaration
-// IWYU: I2_Class needs a declaration
 // IWYU: I1_TemplateClass is...*badinc-i1.h.*#included\.
 // IWYU: I1_TemplateClass is...*badinc-i1.h.*for autocast
 // IWYU: I1_TemplateClass is...*badinc-i1.h.*for fn return type
@@ -213,7 +204,10 @@ Cc_tpl_typedef cc_tpl_typedef;
 // IWYU: I2_Class::InlFileTemplateFn is...*badinc-i2-inl.h
 // IWYU: I2_Class::InlFileStaticFn is...*badinc-i2-inl.h
 typedef I2_Class Cc_I2_Class_Typedef;
-// IWYU: I1_Struct needs a declaration
+// I1_Struct isn't really used by any possible operation with H_TemplateStruct,
+// but '#include' is required as a common rule, as long as I1_Struct
+// isn't forward-declared.
+// IWYU: I1_Struct is...*badinc-i1.h
 // IWYU: OperateOn is...*badinc-i1.h
 typedef H_TemplateStruct<I1_Struct> Cc_H_TemplateStruct_I1Class_Typedef;
 
@@ -1838,13 +1832,13 @@ The full include-list for tests/cxx/badinc.cc:
 #include <setjmp.h>
 #include <stddef.h>  // for offsetof
 #include <algorithm>  // for find
-#include <fstream>  // for fstream
+#include <fstream>  // for basic_fstream, fstream
 #include <list>  // for list
 #include <string>  // for basic_string, operator+, string
 #include <typeinfo>  // for type_info
 #include "tests/cxx/badinc-d1.h"  // for D1CopyClassFn, D1Function, D1_Class, D1_CopyClass, D1_Enum, D1_I1_Typedef, D1_StructPtr, D1_Subclass, D1_TemplateClass, D1_TemplateStructWithDefaultParam, MACRO_CALLING_I4_FUNCTION
 #include "tests/cxx/badinc-d4.h"  // for D4_ClassForOperator, operator<<
-#include "tests/cxx/badinc-i1.h"  // for EmptyDestructorClass, H_Class::H_Class_DefinedInI1, I1_And_I2_OverloadedFunction, I1_Base, I1_Class, I1_ClassPtr, I1_Enum, I1_Function, I1_FunctionPtr, I1_I2_Class_Typedef, I1_MACRO_LOGGING_CLASS, I1_MACRO_SYMBOL_WITHOUT_VALUE, I1_MACRO_SYMBOL_WITH_VALUE, I1_MACRO_SYMBOL_WITH_VALUE0, I1_MACRO_SYMBOL_WITH_VALUE2, I1_ManyPtrStruct (ptr only), I1_MemberPtr, I1_NamespaceClass, I1_NamespaceStruct, I1_NamespaceTemplateFn, I1_OverloadedFunction, I1_PtrAndUseOnSameLine, I1_PtrDereferenceClass, I1_PtrDereferenceStatic, I1_PtrDereferenceStruct, I1_SiblingClass, I1_StaticMethod, I1_Struct, I1_Subclass, I1_SubclassesI2Class, I1_TemplateClass, I1_TemplateClassFwdDeclaredInD2 (ptr only), I1_TemplateFunction, I1_TemplateMethodOnlyClass, I1_TemplateSubclass, I1_Typedef, I1_TypedefOnly_Class, I1_Union, I1_UnnamedStruct, I1_UnusedNamespaceStruct (ptr only), I1_const_ptr, I2_OperatorDefinedInI1Class::operator<<, MACRO_CALLING_I6_FUNCTION, OperateOn, i1_GlobalFunction, i1_int, i1_int_global, i1_int_global2, i1_int_global2sub, i1_int_global3, i1_int_global3sub, i1_int_global4, i1_int_global4sub, i1_int_globalsub, i1_ns2, i1_ns4, i1_ns5, kI1ConstInt, operator==
+#include "tests/cxx/badinc-i1.h"  // for EmptyDestructorClass, H_Class::H_Class_DefinedInI1, I1_And_I2_OverloadedFunction, I1_Base, I1_Class, I1_ClassPtr, I1_Enum, I1_Function, I1_FunctionPtr, I1_I2_Class_Typedef, I1_MACRO_LOGGING_CLASS, I1_MACRO_SYMBOL_WITHOUT_VALUE, I1_MACRO_SYMBOL_WITH_VALUE, I1_MACRO_SYMBOL_WITH_VALUE0, I1_MACRO_SYMBOL_WITH_VALUE2, I1_ManyPtrStruct (ptr only), I1_MemberPtr, I1_NamespaceClass, I1_NamespaceStruct, I1_NamespaceTemplateFn, I1_OverloadedFunction, I1_PtrAndUseOnSameLine, I1_PtrDereferenceClass, I1_PtrDereferenceStatic, I1_PtrDereferenceStruct, I1_SiblingClass, I1_StaticMethod, I1_Struct, I1_Subclass, I1_SubclassesI2Class, I1_TemplateClass, I1_TemplateClassFwdDeclaredInD2 (ptr only), I1_TemplateFunction, I1_TemplateMethodOnlyClass, I1_TemplateSubclass, I1_Typedef, I1_TypedefOnly_Class, I1_Union, I1_UnnamedStruct, I1_UnusedNamespaceStruct (ptr only), I1_const_ptr, I2_OperatorDefinedInI1Class::operator<<, MACRO_CALLING_I6_FUNCTION, OperateOn, i1_GlobalFunction, i1_int, i1_int_global, i1_int_global2, i1_int_global2sub, i1_int_global3, i1_int_global3sub, i1_int_global4, i1_int_global4sub, i1_int_globalsub, i1_ns5, kI1ConstInt, operator==
 #include "tests/cxx/badinc2.c"
 class D2_Class;
 class D2_ForwardDeclareClass;

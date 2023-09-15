@@ -40,6 +40,7 @@ class ClassTemplateDecl;
 class Expr;
 class FunctionDecl;
 class NamedDecl;
+class NamespaceDecl;
 class TagDecl;
 class TemplateDecl;
 class TemplateName;
@@ -611,6 +612,8 @@ bool IsExplicitInstantiation(const clang::Decl* decl);
 // Returns true if this decl is nested inside an inline namespace.
 bool IsInInlineNamespace(const clang::Decl* decl);
 
+bool IsInNamespace(const clang::NamedDecl*, const clang::NamespaceDecl*);
+
 // Returns true if a named decl looks like a forward-declaration of a
 // class (rather than a definition, a friend declaration, or an 'in
 // place' declaration like 'struct Foo' in 'void MyFunc(struct Foo*);'
@@ -701,6 +704,16 @@ const clang::Type* Desugar(const clang::Type* type);
 // the returned set for something like 'Tpl2<Alias>' contains 'Alias', 'A' and
 // 'B' but not 'Tpl1<A, B>'.
 set<const clang::Type*> GetComponentsOfType(const clang::Type* type);
+
+// Returns types for determination of their "provision" status. They are
+// canonicalized because intermediate sugar should be always provided already
+// according to language rules. Substituted template parameter types (and their
+// underlying types) cannot be provided. E. g., given such a template
+// template <class T> struct Tpl1 { typedef Tpl2<T, A> Alias; };
+// the returned set for the type 'Tpl1<B>::Alias' contains 'A' but not 'B'
+// or any sugar for 'B'.
+set<const clang::Type*> GetComponentsOfTypeWithoutSubstituted(
+    const clang::Type*);
 
 // Returns true if the type has any template arguments.
 bool IsTemplatizedType(const clang::Type* type);

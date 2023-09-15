@@ -523,9 +523,9 @@ static const Type* GetTemplateArgAsType(const TemplateArgument& tpl_arg) {
   return nullptr;
 }
 
-// These utilities figure out the template arguments that are
-// specified in various contexts: TemplateSpecializationType (for
-// template classes) and FunctionDecl (for template functions).
+// These utilities figure out the template arguments and other type components
+// that are specified in various contexts: TemplateSpecializationType (for
+// template classes), FunctionDecl (for template functions), and type aliases.
 //
 // For classes, we care only about explicitly specified template args,
 // not implicit, default args.  For functions, we care about all
@@ -541,10 +541,10 @@ static const Type* GetTemplateArgAsType(const TemplateArgument& tpl_arg) {
 // int(const MyClass&), int, const MyClass&, MyClass).  Note that
 // this function only returns types-as-written, so it does *not* return
 // alloc<int(*)(const MyClass&)>, even though it's part of vector.
-class TypeEnumerator : public RecursiveASTVisitor<TypeEnumerator> {
- public:
-  typedef RecursiveASTVisitor<TypeEnumerator> Base;
 
+class SugaredTypeEnumerator
+    : public RecursiveASTVisitor<SugaredTypeEnumerator> {
+ public:
   // --- Public interface
   // We can add more entry points as needed.
   set<const Type*> Enumerate(const Type* type) {
@@ -575,6 +575,8 @@ class TypeEnumerator : public RecursiveASTVisitor<TypeEnumerator> {
   }
 
  private:
+  typedef RecursiveASTVisitor<SugaredTypeEnumerator> Base;
+
   bool TraverseTypeHelper(QualType qual_type) {
     CHECK_(!qual_type.isNull());
 
@@ -588,8 +590,49 @@ class TypeEnumerator : public RecursiveASTVisitor<TypeEnumerator> {
     // TODO(bolshakov): it doesn't always work properly. For example, both A and
     // TypedefForA would be inserted in seen_types_ for Tpl<A, TypedefForA>,
     // leading to indeterminate resugar_map construction.
-    // TODO(bolshakov): check whether typedef components are "provided".
     return Base::TraverseType(QualType(desugared, 0));
+  }
+
+  set<const Type*> seen_types_;
+};
+
+class TypeEnumeratorWithoutSubstituted
+    : public RecursiveASTVisitor<TypeEnumeratorWithoutSubstituted> {
+ public:
+  // --- Public interface
+  set<const Type*> Enumerate(const Type* type) {
+    seen_types_.clear();
+    if (!type)
+      return seen_types_;
+    TraverseType(QualType(type, 0));
+    return seen_types_;
+  }
+
+  // --- Methods on RecursiveASTVisitor
+  bool TraverseType(QualType type) {
+    if (type.isNull())
+      return Base::TraverseType(type);
+    return TraverseTypeHelper(type);
+  }
+
+  bool TraverseTypeLoc(TypeLoc type_loc) {
+    if (!type_loc)
+      return Base::TraverseTypeLoc(type_loc);
+    return TraverseTypeHelper(type_loc.getType());
+  }
+
+ private:
+  typedef RecursiveASTVisitor<TypeEnumeratorWithoutSubstituted> Base;
+
+  bool TraverseTypeHelper(QualType qual_type) {
+    CHECK_(!qual_type.isNull());
+    const Type* type = qual_type.getTypePtr();
+    if (type->getAs<SubstTemplateTypeParmType>())
+      return true;
+
+    seen_types_.insert(GetCanonicalType(type));
+
+    return Base::TraverseType(qual_type);
   }
 
   set<const Type*> seen_types_;
@@ -599,7 +642,12 @@ class TypeEnumerator : public RecursiveASTVisitor<TypeEnumerator> {
 // So 'Foo*' has component 'Foo', as does 'vector<Foo>', while
 // vector<pair<Foo, Bar>> has components pair<Foo,Bar>, Foo, and Bar.
 set<const Type*> GetComponentsOfType(const Type* type) {
-  TypeEnumerator type_enumerator;
+  SugaredTypeEnumerator type_enumerator;
+  return type_enumerator.Enumerate(type);
+}
+
+set<const Type*> GetComponentsOfTypeWithoutSubstituted(const Type* type) {
+  TypeEnumeratorWithoutSubstituted type_enumerator;
   return type_enumerator.Enumerate(type);
 }
 
@@ -986,6 +1034,18 @@ bool IsInInlineNamespace(const Decl* decl) {
   return false;
 }
 
+bool IsInNamespace(const clang::NamedDecl* decl,
+                   const clang::NamespaceDecl* ns_decl) {
+  const DeclContext* primary_ns_context = ns_decl->getPrimaryContext();
+  for (const DeclContext* dc = decl->getDeclContext(); dc;
+       dc = dc->getParent()) {
+    if (dc->getPrimaryContext() == primary_ns_context)
+      return true;
+  }
+
+  return false;
+}
+
 bool IsForwardDecl(const NamedDecl* decl) {
   if (const auto* tag_decl = dyn_cast<TagDecl>(decl)) {
     // clang-format off
@@ -1357,7 +1417,7 @@ GetTplTypeResugarMapForClassNoComponentTypes(const clang::Type* type) {
   // explicitly specified type may fulfill multiple template args:
   //   template <typename R, typename A1> struct Foo<R(A1)> { ... }
   set<unsigned> explicit_args;   // indices into tpl_args we've filled
-  TypeEnumerator type_enumerator;
+  SugaredTypeEnumerator type_enumerator;
   for (unsigned i = 0; i < tpl_spec_type->template_arguments().size(); ++i) {
     set<const Type*> arg_components =
         type_enumerator.Enumerate(tpl_spec_type->template_arguments()[i]);
