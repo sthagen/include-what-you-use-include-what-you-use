@@ -86,6 +86,11 @@ def GenerateTests(rootdir, pattern):
         test_name += '2'               # just append a suffix :-)
 
       setattr(cls, test_name, lambda x, f=filename: TestIwyuOnRelevantFiles(f))
+
+      if iwyu_test_util.IsTestExpectedToFail(filename):
+        test_item = getattr(cls, test_name)
+        unittest.expectedFailure(test_item)
+
       test_files[test_name] = filename
 
     setattr(cls, 'test_files', test_files)
@@ -111,6 +116,35 @@ def PrintLoadedTestsAndFiles():
     print('%s.%s:%s' % (cls.__name__, test, cls.test_files[test]))
 
 
+def RunTestFile(cc_file):
+  """ Executes the test for cc_file, independent of unittest infra.
+  Returns an appropriate exit code for the process. 0 for success, 1
+  for failure, 77 if the test was skipped. If the test failed, an
+  exception will have been raised (causing a non-zero exit code).
+  """
+  xfail = iwyu_test_util.IsTestExpectedToFail(cc_file)
+  try:
+    TestIwyuOnRelevantFiles(cc_file)
+  except unittest.SkipTest as e:
+    # Catch the skip test exception that unittest would normally handle and
+    # set an exit code that informs the test runner that test is being
+    # skipped. It's an almost-convention to use exit code 77, and some build
+    # systems natively report such failures as skipped, see e.g.
+    # https://mesonbuild.com/Unit-tests.html#skipped-tests-and-hard-errors
+    print('Skipped %s: %s' % (cc_file, e))
+    return 77
+  except AssertionError as e:
+    if xfail:
+      print('%s: Expected failure' % cc_file)
+      return 0
+    raise
+  else:
+    if xfail:
+      print('%s: Unexpected pass' % cc_file)
+      return 1
+  return 0
+
+
 if __name__ == '__main__':
   unittest_args, additional_args = Partition(sys.argv, '--')
   if additional_args:
@@ -124,18 +158,7 @@ if __name__ == '__main__':
   (runner_args, _) = parser.parse_known_args(unittest_args)
 
   if runner_args.run_test_file:
-    try:
-      r = TestIwyuOnRelevantFiles(runner_args.run_test_file)
-    except unittest.SkipTest as e:
-      # Catch the skip test exception that unittest would normally handle and
-      # set an exit code that informs the test runner that test is being
-      # skipped. It's an almost-convention to use exit code 77, and some build
-      # systems natively report such failures as skipped, see e.g.
-      # https://mesonbuild.com/Unit-tests.html#skipped-tests-and-hard-errors
-      print('Skipped %s: %s' % (runner_args.run_test_file, e))
-      exit(77)
-    else:
-      exit(r)
+    exit(RunTestFile(runner_args.run_test_file))
 
   @GenerateTests(rootdir='tests/c', pattern='*.c')
   class c(unittest.TestCase): pass
