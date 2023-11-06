@@ -120,6 +120,7 @@
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclBase.h"
+#include "clang/AST/DeclCXX.h"
 #include "clang/AST/DeclTemplate.h"
 #include "clang/AST/ExprConcepts.h"
 #include "clang/AST/NestedNameSpecifier.h"
@@ -148,6 +149,7 @@ using clang::ASTConsumer;
 using clang::ASTContext;
 using clang::ASTFrontendAction;
 using clang::Attr;
+using clang::CXXBaseSpecifier;
 using clang::CXXConstructExpr;
 using clang::CXXConstructorDecl;
 using clang::CXXDeleteExpr;
@@ -166,6 +168,7 @@ using clang::Decl;
 using clang::DeclContext;
 using clang::DeclRefExpr;
 using clang::DeducedTemplateSpecializationType;
+using clang::ElaboratedTypeKeyword;
 using clang::ElaboratedTypeLoc;
 using clang::EnumConstantDecl;
 using clang::EnumDecl;
@@ -3487,6 +3490,11 @@ class InstantiatedTemplateVisitor
         return false;
     }
 
+    for (const CXXBaseSpecifier& base : class_decl->bases()) {
+      if (!TraverseType(base.getType()))
+        return false;
+    }
+
     // Most methods on template classes are instantiated when they're
     // called, and we don't need to deal with them here.  But virtual
     // methods are instantiated when the class's key method is
@@ -4190,7 +4198,7 @@ class IwyuAstConsumer
   }
 
   bool VisitElaboratedTypeLoc(ElaboratedTypeLoc type_loc) {
-    if (type_loc.getTypePtr()->getKeyword() != clang::ETK_None) {
+    if (type_loc.getTypePtr()->getKeyword() != ElaboratedTypeKeyword::None) {
       preprocessor_info()
           .FileInfoFor(CurrentFileEntry())
           ->AddElaboratedType(type_loc);
