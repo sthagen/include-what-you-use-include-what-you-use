@@ -11,6 +11,7 @@
 // argv.
 
 // Everything below is adapted from clang/examples/clang-interpreter/main.cpp.
+#include "iwyu_driver.h"
 
 #include <cctype>
 #include <cstdint>
@@ -157,12 +158,13 @@ void ExpandArgv(int argc, const char **argv,
 
 }  // anonymous namespace
 
-CompilerInstance* CreateCompilerInstance(int argc, const char **argv) {
+bool ExecuteAction(int argc, const char** argv,
+                   ActionFactory make_iwyu_action) {
   std::string path = GetExecutablePath(argv[0]);
   IntrusiveRefCntPtr<DiagnosticOptions> diagnostic_options =
-    new DiagnosticOptions;
+      new DiagnosticOptions;
   auto* diagnostic_client =
-    new TextDiagnosticPrinter(errs(), &*diagnostic_options);
+      new TextDiagnosticPrinter(errs(), &*diagnostic_options);
 
   IntrusiveRefCntPtr<DiagnosticIDs> diagnostic_id(new DiagnosticIDs());
   DiagnosticsEngine diagnostics(diagnostic_id, &*diagnostic_options,
@@ -177,7 +179,7 @@ CompilerInstance* CreateCompilerInstance(int argc, const char **argv) {
   ExpandArgv(argc, argv, args, SavedStrings);
 
   // Drop -save-temps arguments to avoid multiple compilation jobs.
-  llvm::erase_if(args, [](const char *v) {
+  llvm::erase_if(args, [](const char* v) {
     StringRef arg(v);
     return arg.startswith("-save-temps") || arg.startswith("--save-temps");
   });
@@ -189,7 +191,7 @@ CompilerInstance* CreateCompilerInstance(int argc, const char **argv) {
 
   unique_ptr<Compilation> compilation(driver.BuildCompilation(args));
   if (!compilation)
-    return nullptr;
+    return false;
 
   ParseToolChain(compilation->getDefaultToolChain());
 
@@ -203,17 +205,17 @@ CompilerInstance* CreateCompilerInstance(int argc, const char **argv) {
     raw_svector_ostream out(msg);
     jobs.Print(out, "; ", true);
     diagnostics.Report(clang::diag::err_fe_expected_compiler_job) << out.str();
-    return nullptr;
+    return false;
   }
 
   const Command& command = cast<Command>(*jobs.begin());
   if (StringRef(command.getCreator().getName()) != "clang") {
     diagnostics.Report(clang::diag::err_fe_expected_clang_command);
-    return nullptr;
+    return false;
   }
 
   // Initialize a compiler invocation object from the clang (-cc1) arguments.
-  const ArgStringList &cc_arguments = command.getArguments();
+  const ArgStringList& cc_arguments = command.getArguments();
   std::shared_ptr<CompilerInvocation> invocation(new CompilerInvocation);
   CompilerInvocation::CreateFromArgs(*invocation, cc_arguments, diagnostics);
   invocation->getFrontendOpts().DisableFree = false;
@@ -228,16 +230,17 @@ CompilerInstance* CreateCompilerInstance(int argc, const char **argv) {
   // FIXME: This is copied from cc1_main.cpp; simplify and eliminate.
 
   // Create a compiler instance to handle the actual work.
-  // The caller will be responsible for freeing this.
-  CompilerInstance* compiler = new CompilerInstance;
+  unique_ptr<CompilerInstance> compiler(new CompilerInstance);
   compiler->setInvocation(invocation);
 
   // Create the compilers actual diagnostics engine.
   compiler->createDiagnostics();
   if (!compiler->hasDiagnostics())
-    return nullptr;
+    return false;
 
-  return compiler;
+  // Create and execute the IWYU frontend action.
+  unique_ptr<FrontendAction> action(make_iwyu_action());
+  return compiler->ExecuteAction(*action);
 }
 
 }  // namespace include_what_you_use
