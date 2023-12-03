@@ -2348,6 +2348,14 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
     return true;
   }
 
+  bool VisitTypedefType(clang::TypedefType* type) {
+    if (CanIgnoreCurrentASTNode())
+      return true;
+    if (!CanForwardDeclareType(current_ast_node()))
+      ReportTypeUse(CurrentLoc(), type, DerefKind::None);
+    return true;
+  }
+
   //------------------------------------------------------------
   // Visitors defined by BaseAstVisitor.
 
@@ -2445,21 +2453,12 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
         }
 
         parent_type = GetTypeOf(decl);
-      } else if (const auto *decl = ast_node->GetParentAs<TypeDecl>()) {
+      } else if (const auto* parent_decl = ast_node->GetParentAs<TagDecl>()) {
         // If we ourselves are a forward-decl -- that is, we're the type
         // component of a forward-declaration (which would be our parent
         // AST node) -- then we're forward-declarable by definition.
-        if (const auto* parent_decl = ast_node->GetParentAs<TagDecl>()) {
-          if (IsForwardDecl(parent_decl))
-            return true;
-        }
-
-        // If we're part of a typedef declaration, we don't want to forward-
-        // declare even if we're a pointer ('typedef Foo* Bar; Bar x; x->a'
-        // needs full type of Foo.)
-        if (ast_node->ParentIsA<TypedefNameDecl>()) {
-          return false;
-        }
+        if (IsForwardDecl(parent_decl))
+          return true;
       }
     }
 
@@ -3022,85 +3021,11 @@ class InstantiatedTemplateVisitor
     return TraverseTemplateSpecializationTypeHelper(typeloc.getTypePtr());
   }
 
-  // Check whether a use of a template parameter is a full use.
-  bool IsTemplateTypeParmUseFullUse(const Type* type) {
-    const ASTNode* node = MostElaboratedAncestor(current_ast_node());
-
-    // If we're a nested-name-specifier class (the Foo in Foo::bar),
-    // we need our full type info no matter what the context (even if
-    // we're a pointer, or a template arg, or whatever).
-    // TODO(csilvers): consider encoding this logic via
-    // in_forward_declare_context.  I think this will require changing
-    // in_forward_declare_context to yes/no/maybe.
-    if (node->ParentIsA<NestedNameSpecifier>()) {
-      return true;
-    }
-
-    // If we're inside a typedef, we don't need our full type info --
-    // in this case we follow what the C++ language allows and let
-    // the underlying type of a typedef be forward-declared.  This has
-    // the effect that code like:
-    //   class MyClass;
-    //   template<class T> struct Foo { typedef T value_type; ... }
-    //   Foo<MyClass> f;
-    // does not make us require the full type of MyClass.  The idea
-    // is that using Foo<MyClass>::value_type already requires the
-    // type for MyClass, so it doesn't make sense for the typedef
-    // to require it as well.  TODO(csilvers): this doesn't really
-    // make any sense.  Who figures out we need the full type if
-    // you do 'Foo<MyClass>::value_type m;'?
-    for (const ASTNode* ast_node = node; ast_node != caller_ast_node_;
-         ast_node = ast_node->parent()) {
-      if (ast_node->IsA<TypedefNameDecl>()) {
-        return false;
-      }
-      if (ast_node->IsA<TemplateSpecializationType>()) {
-        // If we hit a template specialization node before the typedef then we
-        // probably still need a full-use, so stop looking.
-        break;
-      }
-    }
-
-    // sizeof(a reference type) is the same as sizeof(underlying type).
-    // We have to handle that specially here, or else we'll say the
-    // reference is forward-declarable, below.
-    if (node->ParentIsA<UnaryExprOrTypeTraitExpr>() &&
-        isa<ReferenceType>(type)) {
-      return true;
-    }
-
-    // If we're used in a forward-declare context (MyFunc<T>() { T* t; }),
-    // or are ourselves a pointer type (MyFunc<Myclass*>()),
-    // we don't need to do anything: we're fine being forward-declared.
-    if (node->in_forward_declare_context())
-      return false;
-
-    if (node->ParentIsA<PointerType>() ||
-        node->ParentIsA<LValueReferenceType>() ||
-        IsPointerOrReferenceAsWritten(type))
-      return false;
-
-    return true;
-  }
-
   // This helper is called on every use of a template argument type in an
   // instantiated template.  Its goal is to determine whether that use should
   // constitute a full-use by the template caller, and perform other necessary
   // bookkeeping.
   void AnalyzeTemplateTypeParmUse(const Type* type) {
-    const ASTNode* node = MostElaboratedAncestor(current_ast_node());
-
-    // If the immediate parent node is a typedef, then register the new type as
-    // a new name for the template argument.
-    if (const TypedefNameDecl* typedef_decl =
-            node->GetParentAs<TypedefNameDecl>()) {
-      const Type* typedef_type = typedef_decl->getTypeForDecl();
-      VERRS(6) << "Registering " << PrintableType(typedef_type)
-               << " as an alias for " << PrintableType(type)
-               << " in the context of this instantiation\n";
-      template_argument_aliases_.emplace(typedef_type, type);
-    }
-
     // Figure out how this type was actually written.  clang always
     // canonicalizes SubstTemplateTypeParmType, losing typedef info, etc.
     const Type* actual_type = ResugarType(type);
@@ -3110,17 +3035,10 @@ class InstantiatedTemplateVisitor
     VERRS(6) << "AnalyzeTemplateTypeParmUse: type = " << PrintableType(type)
              << ", actual_type = " << PrintableType(actual_type) << '\n';
 
-    if (!IsTemplateTypeParmUseFullUse(actual_type)) {
+    if (CanForwardDeclareType(MostElaboratedAncestor(current_ast_node()))) {
       // Non-full uses will already have been reported when they were used as
       // template arguments, so nothing to do here.
       return;
-    }
-
-    if (isa<ReferenceType>(actual_type)) {
-      // If the argument type is a reference type, then we actually care about
-      // the referred-to type.
-      const ReferenceType* actual_reftype = cast<ReferenceType>(actual_type);
-      type = actual_reftype->getPointeeTypeAsWritten().getTypePtr();
     }
 
     // At this point we know we are looking at a full-use of type.  However,
@@ -3167,21 +3085,6 @@ class InstantiatedTemplateVisitor
     AnalyzeTemplateTypeParmUse(type);
 
     return Base::VisitSubstTemplateTypeParmType(type);
-  }
-
-  bool VisitTypedefType(clang::TypedefType* type) {
-    if (CanIgnoreCurrentASTNode())
-      return true;
-
-    // Typedefs of template arguments require special handling to ensure that
-    // we record full-uses of those arguments where appropriate.  Those
-    // typedefs are stored in the template_argument_aliases_ map.
-    if (const Type* template_arg_type =
-            GetOrDefault(template_argument_aliases_, type, nullptr)) {
-      AnalyzeTemplateTypeParmUse(template_arg_type);
-    }
-
-    return Base::VisitTypedefType(type);
   }
 
   bool VisitTemplateSpecializationType(TemplateSpecializationType* type) {
@@ -3309,7 +3212,6 @@ class InstantiatedTemplateVisitor
   void Clear() {
     caller_ast_node_ = nullptr;
     resugar_map_.clear();
-    template_argument_aliases_.clear();
     traversed_decls_.clear();
     nodes_to_ignore_.clear();
     cache_storers_.clear();
@@ -3644,12 +3546,6 @@ class InstantiatedTemplateVisitor
   // value, it's a default template parameter, that the
   // template-caller may or may not be responsible for.
   map<const Type*, const Type*> resugar_map_;
-
-  // When we see a full-use of a template argument we need to assign that full
-  // use to the template-caller.  Sometimes those uses are hidden behind
-  // type aliases (typedefs).  This maps those aliases to the underlying
-  // template arguments.
-  map<const Type*, const Type*> template_argument_aliases_;
 
   // Used to avoid recursion in the *Helper() methods.
   set<const Decl*> traversed_decls_;
@@ -4162,8 +4058,6 @@ class IwyuAstConsumer
       return true;
     // TypedefType::getDecl() returns the place where the typedef is defined.
     ReportDeclUse(CurrentLoc(), type->getDecl());
-    if (!CanForwardDeclareType(current_ast_node()))
-      ReportTypeUse(CurrentLoc(), type, DerefKind::None);
     return Base::VisitTypedefType(type);
   }
 

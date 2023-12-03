@@ -20,6 +20,7 @@
 #include <string>
 #include <utility>
 
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Option/ArgList.h"
@@ -40,9 +41,7 @@
 #include "clang/Frontend/TextDiagnosticPrinter.h"
 #include "clang/FrontendTool/Utils.h"
 
-namespace llvm {
-class LLVMContext;
-}  // namespace llvm
+namespace include_what_you_use {
 
 using clang::CompilerInstance;
 using clang::CompilerInvocation;
@@ -56,6 +55,7 @@ using clang::driver::Command;
 using clang::driver::Compilation;
 using clang::driver::Driver;
 using clang::driver::JobList;
+using llvm::ArrayRef;
 using llvm::ErrorOr;
 using llvm::IntrusiveRefCntPtr;
 using llvm::SmallString;
@@ -71,8 +71,6 @@ using llvm::raw_svector_ostream;
 using llvm::sys::getDefaultTargetTriple;
 using std::set;
 using std::unique_ptr;
-
-namespace include_what_you_use {
 
 namespace {
 
@@ -159,7 +157,7 @@ void ExpandArgv(int argc, const char **argv,
   }
 }
 
-bool HasPreprocessOnlyArgs(llvm::ArrayRef<const char*> args) {
+bool HasPreprocessOnlyArgs(ArrayRef<const char*> args) {
   auto is_preprocess_only = [](StringRef arg) {
     // Handle GCC spelling.
     if (arg == "-E")
@@ -198,8 +196,7 @@ bool ExecuteAction(int argc, const char** argv,
   ExpandArgv(argc, argv, args, SavedStrings);
 
   // Drop -save-temps arguments to avoid multiple compilation jobs.
-  llvm::erase_if(args, [](const char* v) {
-    StringRef arg(v);
+  llvm::erase_if(args, [](StringRef arg) {
     return arg.startswith("-save-temps") || arg.startswith("--save-temps");
   });
 
