@@ -67,7 +67,8 @@ using llvm::cast;
 using llvm::errs;
 using llvm::isa;
 using llvm::opt::ArgStringList;
-using llvm::raw_svector_ostream;
+using llvm::raw_ostream;
+using llvm::raw_string_ostream;
 using llvm::sys::getDefaultTargetTriple;
 using std::set;
 using std::unique_ptr;
@@ -173,19 +174,34 @@ bool HasPreprocessOnlyArgs(ArrayRef<const char*> args) {
   return llvm::any_of(args, is_preprocess_only);
 }
 
+// Print the command prefixed by its action class
+raw_ostream& operator<<(raw_ostream& s, const Command& job) {
+  s << "(" << job.getSource().getClassName() << ")";
+  job.Print(s, "", false);
+  return s;
+}
+
+std::string JobsToString(const JobList& jobs, const char* sep) {
+  std::string msg;
+  raw_string_ostream out(msg);
+  for (const Command& job : jobs) {
+    out << job << sep;
+  }
+  return msg;
+}
+
 }  // anonymous namespace
 
 bool ExecuteAction(int argc, const char** argv,
                    ActionFactory make_iwyu_action) {
   std::string path = GetExecutablePath(argv[0]);
+
   IntrusiveRefCntPtr<DiagnosticOptions> diagnostic_options =
       new DiagnosticOptions;
-  auto* diagnostic_client =
-      new TextDiagnosticPrinter(errs(), &*diagnostic_options);
+  DiagnosticsEngine diagnostics(
+      new DiagnosticIDs, diagnostic_options,
+      new TextDiagnosticPrinter(errs(), diagnostic_options.get()), true);
 
-  IntrusiveRefCntPtr<DiagnosticIDs> diagnostic_id(new DiagnosticIDs());
-  DiagnosticsEngine diagnostics(diagnostic_id, &*diagnostic_options,
-                                diagnostic_client);
   Driver driver(path, getDefaultTargetTriple(), diagnostics);
   driver.setTitle("include what you use");
 
@@ -220,10 +236,8 @@ bool ExecuteAction(int argc, const char** argv,
   // failed. Extract that job from the compilation.
   const JobList& jobs = compilation->getJobs();
   if (jobs.size() != 1 || !isa<Command>(*jobs.begin())) {
-    SmallString<256> msg;
-    raw_svector_ostream out(msg);
-    jobs.Print(out, "; ", true);
-    diagnostics.Report(clang::diag::err_fe_expected_compiler_job) << out.str();
+    diagnostics.Report(clang::diag::err_fe_expected_compiler_job)
+        << JobsToString(jobs, "; ");
     return false;
   }
 
@@ -241,9 +255,7 @@ bool ExecuteAction(int argc, const char** argv,
 
   // Show the invocation, with -v.
   if (invocation->getHeaderSearchOpts().Verbose) {
-    errs() << "clang invocation:\n";
-    jobs.Print(errs(), "\n", true);
-    errs() << "\n";
+    errs() << "clang invocation:\n" << JobsToString(jobs, "\n") << "\n";
   }
 
   // FIXME: This is copied from cc1_main.cpp; simplify and eliminate.
@@ -270,8 +282,8 @@ bool ExecuteAction(int argc, const char** argv,
       break;
 
     default:
-      errs() << "error: expected compiler or preprocessor job, found:\n";
-      command.Print(errs(), "\n", true);
+      errs() << "error: expected compiler or preprocessor job, found: "
+             << command << "\n";
       return false;
   }
 
