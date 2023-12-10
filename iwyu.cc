@@ -2335,14 +2335,12 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
 
     const NamedDecl* decl = TypeToDeclAsWritten(type);
 
-    const auto [is_provided, comment] =
-        IsProvidedTypeComponent(current_ast_node());
     // If we are forward-declarable, so are our template arguments.
-    if (CanForwardDeclareType(current_ast_node()) && !is_provided) {
+    if (CanForwardDeclareType(current_ast_node())) {
       ReportDeclForwardDeclareUse(CurrentLoc(), decl);
       current_ast_node()->set_in_forward_declare_context(true);
     } else {
-      ReportDeclUse(CurrentLoc(), decl, comment);
+      ReportDeclUse(CurrentLoc(), decl);
     }
 
     return true;
@@ -2469,49 +2467,6 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
  protected:
   const IwyuPreprocessorInfo& preprocessor_info() const {
     return visitor_state_->preprocessor_info;
-  }
-
-  pair<bool, const char*> CanBeProvidedTypeComponent(
-      const ASTNode* node) const {
-    if (node->HasAncestorOfType<TypedefNameDecl>())
-      return pair(true, nullptr);
-
-    if (const FunctionDecl* decl = node->GetAncestorAs<FunctionDecl>()) {
-      // No point in author-intent analysis of function definitions
-      // in source files, or for builtins, or for friend declarations.
-      if (!IsInHeader(decl) || IsFriendDecl(decl))
-        return pair(false, nullptr);
-      for (const ParmVarDecl* param : decl->parameters()) {
-        if (node->StackContainsContent(param)) {
-          if (HasImplicitConversionConstructor(GetTypeOf(param)))
-            return pair(true, "(for autocast)");
-          return pair(false, nullptr);
-        }
-      }
-      const Type* return_type = decl->getReturnType().getTypePtr();
-      if (node->StackContainsContent(return_type) &&
-          !decl->isThisDeclarationADefinition() &&
-          !IsPointerOrReferenceAsWritten(return_type)) {
-        return pair(true, "(for fn return type)");
-      }
-    }
-    return pair(false, nullptr);
-  }
-
-  // The function is used to determine if the full type info is needed
-  // at a function or type alias declaration side due to author's decision
-  // to provide it.
-  pair<bool, const char*> IsProvidedTypeComponent(const ASTNode* node) const {
-    // A function or type alias author can choose whether to provide a type
-    // or not only when the type can be forward declared.
-    if (!CanForwardDeclareType(node))
-      return pair(false, nullptr);
-    const auto [can_be_provided, comment] = CanBeProvidedTypeComponent(node);
-    if (can_be_provided && !CodeAuthorWantsJustAForwardDeclare(
-                               node->GetAs<Type>(), node->GetLocation())) {
-      return pair(true, comment);
-    }
-    return pair(false, nullptr);
   }
 
   set<const Type*> blocked_types_;
@@ -4138,6 +4093,14 @@ class IwyuAstConsumer
           ExtractProvidedTypeComponents(resugar_map));
     }
 
+    const auto [is_provided, comment] =
+        IsProvidedTypeComponent(current_ast_node());
+    // Don't call ReportTypeUse here, because scanning of template instantiation
+    // internals should be avoided: it is allowed not to provide some of
+    // template args.
+    if (is_provided)
+      ReportDeclUse(CurrentLoc(), TypeToDeclAsWritten(type), comment);
+
     return Base::VisitTemplateSpecializationType(type);
   }
 
@@ -4253,6 +4216,49 @@ class IwyuAstConsumer
       }
     }
     return result;
+  }
+
+  pair<bool, const char*> CanBeProvidedTypeComponent(
+      const ASTNode* node) const {
+    if (node->HasAncestorOfType<TypedefNameDecl>())
+      return pair(true, nullptr);
+
+    if (const FunctionDecl* decl = node->GetAncestorAs<FunctionDecl>()) {
+      // No point in author-intent analysis of function definitions
+      // in source files, or for builtins, or for friend declarations.
+      if (!IsInHeader(decl) || IsFriendDecl(decl))
+        return pair(false, nullptr);
+      for (const ParmVarDecl* param : decl->parameters()) {
+        if (node->StackContainsContent(param)) {
+          if (HasImplicitConversionConstructor(GetTypeOf(param)))
+            return pair(true, "(for autocast)");
+          return pair(false, nullptr);
+        }
+      }
+      const Type* return_type = decl->getReturnType().getTypePtr();
+      if (node->StackContainsContent(return_type) &&
+          !decl->isThisDeclarationADefinition() &&
+          !IsPointerOrReferenceAsWritten(return_type)) {
+        return pair(true, "(for fn return type)");
+      }
+    }
+    return pair(false, nullptr);
+  }
+
+  // The function is used to determine if the full type info is needed
+  // at a function or type alias declaration side due to author's decision
+  // to provide it.
+  pair<bool, const char*> IsProvidedTypeComponent(const ASTNode* node) const {
+    // A function or type alias author can choose whether to provide a type
+    // or not only when the type can be forward declared.
+    if (!CanForwardDeclareType(node))
+      return pair(false, nullptr);
+    const auto [can_be_provided, comment] = CanBeProvidedTypeComponent(node);
+    if (can_be_provided && !CodeAuthorWantsJustAForwardDeclare(
+                               node->GetAs<Type>(), node->GetLocation())) {
+      return pair(true, comment);
+    }
+    return pair(false, nullptr);
   }
 
   // Class we call to handle instantiated template functions and classes.
