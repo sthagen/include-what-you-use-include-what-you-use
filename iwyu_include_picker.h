@@ -50,9 +50,7 @@
 #include <utility>                      // for pair
 #include <vector>                       // for vector
 
-namespace clang {
-class FileEntry;
-}  // namespace clang
+#include "clang/Basic/FileEntry.h"
 
 namespace include_what_you_use {
 
@@ -180,7 +178,7 @@ class IncludePicker {
   bool HasMapping(const string& map_from_filepath,
                   const string& map_to_filepath) const;
 
-  bool IsPublic(const clang::FileEntry* file) const;
+  bool IsPublic(clang::OptionalFileEntryRef file) const;
 
   // Parses a YAML/JSON file containing mapping directives of various types.
   void AddMappingsFromFile(const string& filename);

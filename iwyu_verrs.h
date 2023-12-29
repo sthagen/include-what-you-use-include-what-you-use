@@ -12,11 +12,9 @@
 #ifndef INCLUDE_WHAT_YOU_USE_IWYU_VERRS_H_
 #define INCLUDE_WHAT_YOU_USE_IWYU_VERRS_H_
 
-#include "llvm/Support/raw_ostream.h"
+#include "clang/Basic/FileEntry.h"
 
-namespace clang {
-class FileEntry;
-}
+#include "llvm/Support/raw_ostream.h"
 
 namespace include_what_you_use {
 
@@ -32,7 +30,7 @@ inline bool ShouldPrint(int verbose_level) {
 // given file, at the current verbosity level.  For instance, at most
 // normal verbosities, we don't print information about symbols in
 // system header files.
-bool ShouldPrintSymbolFromFile(const clang::FileEntry* file);
+bool ShouldPrintSymbolFromFile(clang::OptionalFileEntryRef file);
 
 // VERRS(n) << blah;
 // prints blah to errs() if the verbose level is >= n.

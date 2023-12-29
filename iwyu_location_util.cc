@@ -29,10 +29,10 @@ using clang::CXXMethodDecl;
 using clang::CXXOperatorCallExpr;
 using clang::ClassTemplateSpecializationDecl;
 using clang::ConditionalOperator;
-using clang::FileEntry;
 using clang::FileID;
 using clang::FunctionDecl;
 using clang::MemberExpr;
+using clang::OptionalFileEntryRef;
 using clang::SourceLocation;
 using clang::SourceManager;
 using clang::UnaryOperator;
@@ -178,18 +178,18 @@ bool IsInScratchSpace(SourceLocation loc) {
 }
 
 bool IsInHeader(const clang::Decl* decl) {
-  const FileEntry* containing_file = GetFileEntry(decl);
+  OptionalFileEntryRef containing_file = GetFileEntry(decl);
   if (!containing_file) {
     // This is a builtin, or something is terribly wrong.
     // At any rate, we're not in a header.
     return false;
   }
-  return !GlobalSourceManager()->isMainFile(*containing_file);
+  return !GlobalSourceManager()->isMainFile(containing_file->getFileEntry());
 }
 
-bool IsSystemHeader(const FileEntry* file) {
+bool IsSystemHeader(OptionalFileEntryRef file) {
   const SourceManager* sm = GlobalSourceManager();
-  FileID file_id = sm->translateFile(file);
+  FileID file_id = sm->translateFile(*file);
   SourceLocation loc = sm->getLocForStartOfFile(file_id);
   return sm->isInSystemHeader(loc);
 }

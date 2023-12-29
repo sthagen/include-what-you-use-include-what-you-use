@@ -41,13 +41,10 @@
 #include "clang/AST/Type.h"
 #include "clang/AST/TypeLoc.h"
 #include "clang/Basic/Builtins.h"
+#include "clang/Basic/FileEntry.h"
 #include "clang/Basic/SourceLocation.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Basic/Specifiers.h"
-
-namespace clang {
-class FileEntry;
-}  // namespace clang
 
 using clang::ASTDumper;
 using clang::BlockPointerType;
@@ -77,7 +74,6 @@ using clang::EnumDecl;
 using clang::ExplicitCastExpr;
 using clang::Expr;
 using clang::ExprWithCleanups;
-using clang::FileEntry;
 using clang::FullSourceLoc;
 using clang::FunctionDecl;
 using clang::FunctionTemplateSpecializationInfo;
@@ -90,6 +86,7 @@ using clang::MemberPointerType;
 using clang::NamedDecl;
 using clang::NestedNameSpecifier;
 using clang::ObjCObjectType;
+using clang::OptionalFileEntryRef;
 using clang::OverloadExpr;
 using clang::PointerType;
 using clang::QualType;
@@ -208,10 +205,10 @@ SourceLocation ASTNode::GetLocation() const {
   if (retval.isValid()) {
     clang::SourceManager& sm = *GlobalSourceManager();
     FullSourceLoc full_loc(retval, sm);
-    const FileEntry* spelling_file =
-        sm.getFileEntryForID(sm.getFileID(full_loc.getSpellingLoc()));
-    const FileEntry* instantiation_file =
-        sm.getFileEntryForID(sm.getFileID(full_loc.getExpansionLoc()));
+    OptionalFileEntryRef spelling_file =
+        sm.getFileEntryRefForID(sm.getFileID(full_loc.getSpellingLoc()));
+    OptionalFileEntryRef instantiation_file =
+        sm.getFileEntryRefForID(sm.getFileID(full_loc.getExpansionLoc()));
     if (spelling_file != instantiation_file)
       return SourceLocation();
   }

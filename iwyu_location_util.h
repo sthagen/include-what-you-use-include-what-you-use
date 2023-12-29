@@ -25,8 +25,10 @@
 // Clang uses the type FileEntry to identify a physical file in the
 // file system.  A FileEntry is created for each source file Clang
 // processes.  Clang never creates two FileEntry objects for the same
-// file.  Therefore we use const FileEntry* in IWYU as unique IDs for
-// files.
+// file, so FileEntry objects have pointer identity. Clang wraps
+// FileEntry in a couple of stronger types with similar semantics
+// (FileEntryRef and OptionalFileEntryRef). We use these wrappers
+// as file identities in IWYU.
 //
 // Clang's FileID type is a misnomer.  It's actually an ID of a
 // particular #include statement.  If a file is #included in two
@@ -44,6 +46,7 @@
 
 #include "iwyu_globals.h"
 #include "iwyu_path_util.h"
+#include "clang/Basic/FileEntry.h"
 #include "clang/Basic/FileManager.h"
 #include "clang/Basic/SourceLocation.h"
 #include "clang/Basic/SourceManager.h"
@@ -64,10 +67,17 @@ using std::string;
 //------------------------------------------------------------
 // Helper functions for FileEntry.
 
+inline const clang::FileEntry* RawFileEntry(clang::OptionalFileEntryRef file) {
+  if (!file) {
+    return nullptr;
+  }
+  return &file->getFileEntry();
+}
+
 // Some symbols are directly defined by the compiler.  For them, the
 // definition location points to the "<built-in>" file.
-inline bool IsBuiltinFile(const clang::FileEntry* file) {
-  return file == nullptr;
+inline bool IsBuiltinFile(clang::OptionalFileEntryRef file) {
+  return !file;
 }
 
 // There are two kinds of symbols that are not defined in the source
@@ -77,7 +87,7 @@ inline bool IsBuiltinFile(const clang::FileEntry* file) {
 // "<built-in>" in the first case, and "<command line>" in the second.
 // IsBuiltinOrCommandLineFile(file) returns true if it's either of the
 // two cases.
-inline bool IsBuiltinOrCommandLineFile(const clang::FileEntry* file) {
+inline bool IsBuiltinOrCommandLineFile(clang::OptionalFileEntryRef file) {
   return IsBuiltinFile(file) || file->getName().equals("<command line>");
 }
 
@@ -87,9 +97,14 @@ inline bool IsBuiltinOrCommandLineFile(const clang::FileEntry* file) {
 // This function returns true if the provided loc is in scratch space.
 bool IsInScratchSpace(clang::SourceLocation loc);
 
-inline string GetFilePath(const clang::FileEntry* file) {
-  return (IsBuiltinFile(file) ? "<built-in>" :
-          NormalizeFilePath(file->getName().str()));
+// Resolve canonical file path from various file entry types.
+inline string GetFilePath(clang::OptionalFileEntryRef file) {
+  return (IsBuiltinFile(file) ? "<built-in>"
+                              : NormalizeFilePath(file->getName().str()));
+}
+
+inline string GetFilePath(clang::FileEntryRef file) {
+  return NormalizeFilePath(file.getName().str());
 }
 
 //------------------------------------------------------------
@@ -126,24 +141,24 @@ inline int GetLineNumber(clang::SourceLocation loc) {
 }
 
 // The rest of this section of the file is for returning the
-// FileEntry* corresponding to a source location: the file that the
+// FileEntry corresponding to a source location: the file that the
 // location is in.  This is a surprising amount of work.
 
 // Tells which #include loc comes from.
 // This is the most basic FileEntry getter, it only does a simple lookup in
 // SourceManager to determine which file the location is associated with.
-inline const clang::FileEntry* GetLocFileEntry(clang::SourceLocation loc) {
+inline clang::OptionalFileEntryRef GetLocFileEntry(clang::SourceLocation loc) {
   // clang uses the name FileID to mean 'a filename that was reached via
   // a particular series of #includes.'  (What one might think a FileID
   // might be -- a unique reference to a filesystem object -- is
-  // actually a FileEntry*.)
+  // actually a FileEntry.)
   const clang::SourceManager& source_manager = *GlobalSourceManager();
-  return source_manager.getFileEntryForID(source_manager.getFileID(loc));
+  return source_manager.getFileEntryRefForID(source_manager.getFileID(loc));
 }
 
-inline const clang::FileEntry* GetFileEntry(clang::SourceLocation loc) {
+inline clang::OptionalFileEntryRef GetFileEntry(clang::SourceLocation loc) {
   if (!loc.isValid())
-    return nullptr;
+    return std::nullopt;
 
   // We want where the user actually writes the token, instead of
   // where it appears as part of a macro expansion.  For example, in:
@@ -153,7 +168,7 @@ inline const clang::FileEntry* GetFileEntry(clang::SourceLocation loc) {
   //
   // FOO(z) will expand to 'z + y', where symbol z's location is
   // foo.h, line 5, and its spelling location is bar.cc, line 10.
-  const clang::FileEntry* retval = GetLocFileEntry(GetSpellingLoc(loc));
+  clang::OptionalFileEntryRef retval = GetLocFileEntry(GetSpellingLoc(loc));
 
   // Sometimes the spelling location is NULL, because the symbol is
   // 'spelled' via macro concatenation.  For instance, all the
@@ -183,12 +198,15 @@ clang::SourceLocation GetLocation(const clang::NestedNameSpecifierLoc* nnsloc);
 clang::SourceLocation GetLocation(const clang::TemplateArgumentLoc* argloc);
 
 // These define default implementations of GetFileEntry() and
-// GetPath() in terms of GetLocation().  As long as an object defines
+// GetFilePath() in terms of GetLocation().  As long as an object defines
 // its own GetLocation(), it will get these other two for free.
-template<typename T> const clang::FileEntry* GetFileEntry(const T& obj) {
+template <typename T>
+clang::OptionalFileEntryRef GetFileEntry(const T& obj) {
   return GetFileEntry(GetLocation(obj));
 }
-template<typename T> const string GetFilePath(const T& obj) {
+
+template <typename T>
+const string GetFilePath(const T& obj) {
   return GetFilePath(GetFileEntry(obj));
 }
 
@@ -232,7 +250,7 @@ inline bool IsBeforeInSameFile(const T& a, const U& b) {
 bool IsInHeader(const clang::Decl*);
 
 // Returns true if file is a system header.
-bool IsSystemHeader(const clang::FileEntry* file);
+bool IsSystemHeader(clang::OptionalFileEntryRef file);
 
 }  // namespace include_what_you_use
 
