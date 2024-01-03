@@ -15,15 +15,6 @@
 #include <string>                       // for string, operator+, etc
 #include <utility>                      // for pair
 
-#include "iwyu_globals.h"
-#include "iwyu_location_util.h"
-#include "iwyu_path_util.h"
-#include "iwyu_port.h"  // for CHECK_
-#include "iwyu_stl_util.h"
-#include "iwyu_verrs.h"
-#include "llvm/ADT/ArrayRef.h"
-#include "llvm/Support/Casting.h"
-#include "llvm/Support/raw_ostream.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/ASTDumper.h"
 #include "clang/AST/CanonicalType.h"
@@ -45,8 +36,18 @@
 #include "clang/Basic/SourceLocation.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Basic/Specifiers.h"
+#include "iwyu_globals.h"
+#include "iwyu_location_util.h"
+#include "iwyu_path_util.h"
+#include "iwyu_port.h"  // for CHECK_
+#include "iwyu_stl_util.h"
+#include "iwyu_verrs.h"
+#include "llvm/ADT/ArrayRef.h"
+#include "llvm/Support/Casting.h"
+#include "llvm/Support/raw_ostream.h"
 
 using clang::ASTDumper;
+using clang::ArrayType;
 using clang::BlockPointerType;
 using clang::CXXConstructExpr;
 using clang::CXXConstructorDecl;
@@ -71,6 +72,7 @@ using clang::DependentTemplateSpecializationType;
 using clang::ElaboratedType;
 using clang::ElaboratedTypeKeyword;
 using clang::EnumDecl;
+using clang::EnumType;
 using clang::ExplicitCastExpr;
 using clang::Expr;
 using clang::ExprWithCleanups;
@@ -78,23 +80,28 @@ using clang::FullSourceLoc;
 using clang::FunctionDecl;
 using clang::FunctionTemplateSpecializationInfo;
 using clang::FunctionType;
+using clang::IdentifierInfo;
 using clang::ImplicitCastExpr;
 using clang::InjectedClassNameType;
 using clang::LValueReferenceType;
 using clang::MemberExpr;
 using clang::MemberPointerType;
 using clang::NamedDecl;
+using clang::NamespaceDecl;
 using clang::NestedNameSpecifier;
 using clang::ObjCObjectType;
 using clang::OptionalFileEntryRef;
 using clang::OverloadExpr;
 using clang::PointerType;
+using clang::PrintingPolicy;
 using clang::QualType;
 using clang::QualifiedTemplateName;
 using clang::RecordDecl;
 using clang::RecordType;
 using clang::RecursiveASTVisitor;
+using clang::Redeclarable;
 using clang::SourceLocation;
+using clang::SourceManager;
 using clang::SourceRange;
 using clang::Stmt;
 using clang::SubstTemplateTypeParmType;
@@ -129,6 +136,7 @@ using llvm::dyn_cast_or_null;
 using llvm::errs;
 using llvm::isa;
 using llvm::raw_string_ostream;
+using std::function;
 
 namespace include_what_you_use {
 
@@ -203,7 +211,7 @@ SourceLocation ASTNode::GetLocation() const {
   // locations are in a different file, then we're uncertain of our
   // own location.  Return an invalid location.
   if (retval.isValid()) {
-    clang::SourceManager& sm = *GlobalSourceManager();
+    SourceManager& sm = *GlobalSourceManager();
     FullSourceLoc full_loc(retval, sm);
     OptionalFileEntryRef spelling_file =
         sm.getFileEntryRefForID(sm.getFileID(full_loc.getSpellingLoc()));
@@ -427,7 +435,7 @@ string PrintableDecl(const Decl* decl, bool terse/*=true*/) {
     return "<null decl>";
 
   // Use the terse flag to limit the level of output to one line.
-  clang::PrintingPolicy policy = decl->getASTContext().getPrintingPolicy();
+  PrintingPolicy policy = decl->getASTContext().getPrintingPolicy();
   policy.TerseOutput = terse;
   policy.SuppressInitializers = terse;
   policy.PolishForDeclaration = terse;
@@ -521,7 +529,7 @@ void PrintStmt(const Stmt* stmt) {
 string GetWrittenQualifiedNameAsString(const NamedDecl* named_decl) {
   std::string retval;
   llvm::raw_string_ostream ostream(retval);
-  clang::PrintingPolicy printing_policy =
+  PrintingPolicy printing_policy =
       named_decl->getASTContext().getPrintingPolicy();
   printing_policy.SuppressUnwrittenScope = true;
   named_decl->printQualifiedName(ostream, printing_policy);
@@ -816,7 +824,7 @@ static map<const Type*, const Type*> ResugarTypeComponents(
   return retval;
 }
 
-// Helpers for GetTplTypeResugarMapForFunction().
+// Helpers for GetTplInstDataForFunction().
 static map<const Type*, const Type*> GetTplTypeResugarMapForFunctionNoCallExpr(
     const FunctionDecl* decl, unsigned start_arg) {
   map<const Type*, const Type*> retval;
@@ -837,7 +845,6 @@ static map<const Type*, const Type*> GetTplTypeResugarMapForFunctionNoCallExpr(
 
 static map<const Type*, const Type*>
 GetTplTypeResugarMapForFunctionExplicitTplArgs(
-    const FunctionDecl* decl,
     const TemplateArgumentListInfo& explicit_tpl_list) {
   map<const Type*, const Type*> retval;
   for (const TemplateArgumentLoc& loc : explicit_tpl_list.arguments()) {
@@ -888,9 +895,11 @@ static const Type* GetSugaredTypeOf(const Expr* expr) {
   return v.sugared.getTypePtr();
 }
 
-map<const Type*, const Type*> GetTplTypeResugarMapForFunction(
-    const FunctionDecl* decl, const Expr* calling_expr) {
-  map<const Type*, const Type*> retval;
+TemplateInstantiationData GetTplInstDataForFunction(
+    const FunctionDecl* decl, const Expr* calling_expr,
+    function<set<const Type*>(const Type*)> provided_getter) {
+  map<const Type*, const Type*> resugar_map;
+  set<const Type*> provided_types;
 
   // If calling_expr is nullptr, then we can't find any explicit template
   // arguments, if they were specified (e.g. 'Fn<int>()'), and we
@@ -898,9 +907,10 @@ map<const Type*, const Type*> GetTplTypeResugarMapForFunction(
   // can't resugar at all.  We just have to hope that the types happen
   // to be already sugared, because the actual-type is already canonical.
   if (calling_expr == nullptr) {
-    retval = GetTplTypeResugarMapForFunctionNoCallExpr(decl, 0);
-    retval = ResugarTypeComponents(retval);  // add in retval's decomposition
-    return retval;
+    resugar_map = GetTplTypeResugarMapForFunctionNoCallExpr(decl, 0);
+    resugar_map = ResugarTypeComponents(
+        resugar_map);  // add in resugar_map's decomposition
+    return TemplateInstantiationData{resugar_map};
   }
 
   // If calling_expr is a CXXConstructExpr of CXXNewExpr, then it's
@@ -922,8 +932,8 @@ map<const Type*, const Type*> GetTplTypeResugarMapForFunction(
     const TemplateArgumentListInfo& explicit_tpl_args =
         GetExplicitTplArgs(callee_expr);
     if (explicit_tpl_args.size() > 0) {
-      retval = GetTplTypeResugarMapForFunctionExplicitTplArgs(
-          decl, explicit_tpl_args);
+      resugar_map =
+          GetTplTypeResugarMapForFunctionExplicitTplArgs(explicit_tpl_args);
       start_of_implicit_args = explicit_tpl_args.size();
     }
   } else {
@@ -931,11 +941,13 @@ map<const Type*, const Type*> GetTplTypeResugarMapForFunction(
     const TemplateArgumentListInfo& explicit_tpl_args =
         GetExplicitTplArgs(calling_expr);
     if (explicit_tpl_args.size() > 0) {
-      retval = GetTplTypeResugarMapForFunctionExplicitTplArgs(
-          decl, explicit_tpl_args);
-      retval = ResugarTypeComponents(retval);
+      resugar_map =
+          GetTplTypeResugarMapForFunctionExplicitTplArgs(explicit_tpl_args);
+      resugar_map = ResugarTypeComponents(resugar_map);
+      for (const auto [_, sugared_type] : resugar_map)
+        InsertAllInto(provided_getter(sugared_type), &provided_types);
     }
-    return retval;
+    return TemplateInstantiationData{resugar_map, provided_types};
   }
 
   // Now we have to figure out, as best we can, the sugar-mappings for
@@ -963,28 +975,38 @@ map<const Type*, const Type*> GetTplTypeResugarMapForFunction(
   }
 
   for (const Type* type : fn_arg_types) {
-    // See if any of the template args in retval are the desugared form of us.
+    // See if any of the template args in resugar_map are the desugared form
+    // of us.
     const Type* desugared_type = GetCanonicalType(type);
     if (ContainsKey(desugared_types, desugared_type)) {
-      retval[desugared_type] = type;
+      resugar_map[desugared_type] = type;
       if (desugared_type != type) {
         VERRS(6) << "Remapping template arg of interest: "
                  << PrintableType(desugared_type) << " -> "
                  << PrintableType(type) << "\n";
       }
     }
+    // TODO(bolshakov): more fine-grained determination of provided types could
+    // e.g. consider only arguments that actually take part in type deduction.
+    // Simply moving the line below into the if-statement body above doesn't
+    // work because 'type' can be just an internal component of a 'typedef'ed
+    // argument.
+    InsertAllInto(provided_getter(type), &provided_types);
   }
 
   // Log the types we never mapped.
   for (const auto& types : desugared_types) {
-    if (!ContainsKey(retval, types.first)) {
+    if (!ContainsKey(resugar_map, types.first)) {
       VERRS(6) << "Ignoring unseen-in-fn-args template arg of interest: "
                << PrintableType(types.first) << "\n";
     }
   }
 
-  retval = ResugarTypeComponents(retval);  // add in the decomposition of retval
-  return retval;
+  resugar_map = ResugarTypeComponents(
+      resugar_map);  // add in the decomposition of resugar_map
+  for (const auto [_, sugared_type] : resugar_map)
+    InsertAllInto(provided_getter(sugared_type), &provided_types);
+  return TemplateInstantiationData{resugar_map, provided_types};
 }
 
 const NamedDecl* GetInstantiatedFromDecl(const CXXRecordDecl* class_decl) {
@@ -1047,14 +1069,14 @@ bool IsFriendDecl(const Decl* decl) {
   return decl->getFriendObjectKind() != Decl::FOK_None;
 }
 
-bool IsExplicitInstantiation(const clang::Decl* decl) {
+bool IsExplicitInstantiation(const Decl* decl) {
   TemplateSpecializationKind kind = GetTemplateSpecializationKind(decl);
   return kind == clang::TSK_ExplicitInstantiationDeclaration ||
          kind == clang::TSK_ExplicitInstantiationDefinition;
 }
 
 bool IsExplicitInstantiationDefinitionAsWritten(
-    const clang::ClassTemplateSpecializationDecl* decl) {
+    const ClassTemplateSpecializationDecl* decl) {
   // When swithing instantiation declaration to definition, clang preserves
   // the 'extern' keyword location info.
   return decl->getSpecializationKind() ==
@@ -1072,8 +1094,7 @@ bool IsInInlineNamespace(const Decl* decl) {
   return false;
 }
 
-bool IsInNamespace(const clang::NamedDecl* decl,
-                   const clang::NamespaceDecl* ns_decl) {
+bool IsInNamespace(const NamedDecl* decl, const NamespaceDecl* ns_decl) {
   const DeclContext* primary_ns_context = ns_decl->getPrimaryContext();
   for (const DeclContext* dc = decl->getDeclContext(); dc;
        dc = dc->getParent()) {
@@ -1112,16 +1133,16 @@ bool HasDefaultTemplateParameters(const TemplateDecl* decl) {
   return tpl_params->getMinRequiredArguments() < tpl_params->size();
 }
 
-template <class T> inline set<const clang::NamedDecl*> GetRedeclsOfRedeclarable(
-    const clang::Redeclarable<T>* decl) {
-  return set<const clang::NamedDecl*>(decl->redecls_begin(),
-                                      decl->redecls_end());
+template <class T>
+inline set<const NamedDecl*> GetRedeclsOfRedeclarable(
+    const Redeclarable<T>* decl) {
+  return set<const NamedDecl*>(decl->redecls_begin(), decl->redecls_end());
 }
 
 // The only way to find out whether a decl can be dyn_cast to a
 // Redeclarable<T> and what T is is to enumerate the possibilities.
 // Hence we hard-code the list.
-set<const clang::NamedDecl*> GetNonTagRedecls(const clang::NamedDecl* decl) {
+set<const NamedDecl*> GetNonTagRedecls(const NamedDecl* decl) {
   CHECK_(!isa<TagDecl>(decl) && "For tag types, call GetTagRedecls()");
   CHECK_(!isa<ClassTemplateDecl>(decl) && "For tpls, call GetTagRedecls()");
   // TODO(wan): go through iwyu to replace TypedefDecl with
@@ -1133,7 +1154,7 @@ set<const clang::NamedDecl*> GetNonTagRedecls(const clang::NamedDecl* decl) {
   if (const VarDecl* specific_decl = DynCastFrom(decl))
     return GetRedeclsOfRedeclarable(specific_decl);
   // Not redeclarable, so the output is just the input.
-  set<const clang::NamedDecl*> retval;
+  set<const NamedDecl*> retval;
   retval.insert(decl);
   return retval;
 }
@@ -1209,8 +1230,8 @@ bool DeclsAreInSameClass(const Decl* decl1, const Decl* decl2) {
   return decl1->getDeclContext()->isRecord();
 }
 
-bool IsBuiltinFunction(const clang::NamedDecl* decl) {
-  if (const clang::IdentifierInfo* iden = decl->getIdentifier()) {
+bool IsBuiltinFunction(const NamedDecl* decl) {
+  if (const IdentifierInfo* iden = decl->getIdentifier()) {
     unsigned builtin_id = iden->getBuiltinID();
     if (builtin_id != 0) {
       const clang::Builtin::Context& ctx = decl->getASTContext().BuiltinInfo;
@@ -1221,7 +1242,7 @@ bool IsBuiltinFunction(const clang::NamedDecl* decl) {
   return false;
 }
 
-bool IsImplicitlyInstantiatedDfn(const clang::FunctionDecl* decl) {
+bool IsImplicitlyInstantiatedDfn(const FunctionDecl* decl) {
   const FunctionTemplateSpecializationInfo* tpl_spec_info =
       decl->getTemplateSpecializationInfo();
   if (!tpl_spec_info)
@@ -1243,7 +1264,7 @@ const Type* GetTypeOf(const Expr* expr) {
 
 const Type* GetTypeOf(const CXXConstructExpr* expr) {
   const Type* type = expr->getType().getTypePtr();
-  if (const clang::ArrayType* array_type = type->getAsArrayTypeUnsafe()) {
+  if (const ArrayType* array_type = type->getAsArrayTypeUnsafe()) {
     type = array_type->getElementType().getTypePtr();
   }
   return type;
@@ -1300,14 +1321,13 @@ bool IsTemplatizedType(const Type* type) {
   return (type && isa<TemplateSpecializationType>(Desugar(type)));
 }
 
-bool IsClassType(const clang::Type* type) {
+bool IsClassType(const Type* type) {
   type = Desugar(type);
   return (type &&
           (isa<TemplateSpecializationType>(type) || isa<RecordType>(type)));
 }
 
-bool InvolvesTypeForWhich(const Type* type,
-                          std::function<bool(const Type*)> pred) {
+bool InvolvesTypeForWhich(const Type* type, function<bool(const Type*)> pred) {
   type = Desugar(type);
   if (pred(type))
     return true;
@@ -1441,12 +1461,12 @@ bool HasImplicitConversionConstructor(const Type* type) {
   return HasImplicitConversionCtor(cxx_class);
 }
 
-map<const clang::Type*, const clang::Type*>
-GetTplTypeResugarMapForClassNoComponentTypes(const clang::Type* type) {
+TemplateInstantiationData GetTplInstDataForClassNoComponentTypes(
+    const Type* type, function<set<const Type*>(const Type*)> provided_getter) {
   map<const Type*, const Type*> retval;
   const auto* tpl_spec_type = type->getAs<TemplateSpecializationType>();
   if (!tpl_spec_type) {
-    return retval;
+    return TemplateInstantiationData{retval};
   }
 
   // Pull the template arguments out of the specialization type. If this is
@@ -1470,6 +1490,7 @@ GetTplTypeResugarMapForClassNoComponentTypes(const clang::Type* type) {
   //   template <typename R, typename A1> struct Foo<R(A1)> { ... }
   set<unsigned> explicit_args;   // indices into tpl_args we've filled
   SugaredTypeEnumerator type_enumerator;
+  set<const Type*> provided_types;
   for (unsigned i = 0; i < tpl_spec_type->template_arguments().size(); ++i) {
     set<const Type*> arg_components =
         type_enumerator.Enumerate(tpl_spec_type->template_arguments()[i]);
@@ -1490,6 +1511,9 @@ GetTplTypeResugarMapForClassNoComponentTypes(const clang::Type* type) {
         }
       }
     }
+
+    for (const Type* component : arg_components)
+      InsertAllInto(provided_getter(component), &provided_types);
   }
 
   // Now take a look at the args that were not filled explicitly.
@@ -1503,16 +1527,20 @@ GetTplTypeResugarMapForClassNoComponentTypes(const clang::Type* type) {
     }
   }
 
-  return retval;
+  return TemplateInstantiationData{retval, provided_types};
 }
 
-map<const clang::Type*, const clang::Type*> GetTplTypeResugarMapForClass(
-    const clang::Type* type) {
-  return ResugarTypeComponents(  // add in the decomposition of retval
-      GetTplTypeResugarMapForClassNoComponentTypes(type));
+TemplateInstantiationData GetTplInstDataForClass(
+    const Type* type, function<set<const Type*>(const Type*)> provided_getter) {
+  TemplateInstantiationData result =
+      GetTplInstDataForClassNoComponentTypes(type, provided_getter);
+  return TemplateInstantiationData{
+      ResugarTypeComponents(
+          result.resugar_map),  // add in the decomposition of retval
+      result.provided_types};
 }
 
-bool CanBeOpaqueDeclared(const clang::EnumType* type) {
+bool CanBeOpaqueDeclared(const EnumType* type) {
   return type->getDecl()->isFixed();
 }
 
@@ -1651,7 +1679,7 @@ bool IsDeclaredInsideFunction(const Decl* decl) {
   return isa<FunctionDecl>(decl_ctx);
 }
 
-bool IsDeclaredInsideMacro(const clang::Decl* decl) {
+bool IsDeclaredInsideMacro(const Decl* decl) {
   SourceRange range = decl->getSourceRange();
   return range.getBegin().isMacroID() || range.getEnd().isMacroID();
 }

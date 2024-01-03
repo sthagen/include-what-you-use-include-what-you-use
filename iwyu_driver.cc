@@ -22,17 +22,8 @@
 
 #include "iwyu_verrs.h"
 
-#include "llvm/ADT/ArrayRef.h"
-#include "llvm/ADT/SmallString.h"
-#include "llvm/ADT/STLExtras.h"
-#include "llvm/Option/ArgList.h"
-#include "llvm/Support/ErrorOr.h"
-#include "llvm/Support/FileSystem.h"
-#include "llvm/Support/MemoryBuffer.h"
-#include "llvm/TargetParser/Host.h"
-#include "llvm/TargetParser/Triple.h"
-#include "clang/Basic/DiagnosticOptions.h"
 #include "clang/Basic/DiagnosticFrontend.h"
+#include "clang/Basic/DiagnosticOptions.h"
 #include "clang/Driver/Action.h"
 #include "clang/Driver/Compilation.h"
 #include "clang/Driver/Driver.h"
@@ -42,12 +33,20 @@
 #include "clang/Frontend/FrontendAction.h"
 #include "clang/Frontend/TextDiagnosticPrinter.h"
 #include "clang/FrontendTool/Utils.h"
+#include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallString.h"
+#include "llvm/Option/ArgList.h"
+#include "llvm/Support/ErrorOr.h"
+#include "llvm/Support/FileSystem.h"
+#include "llvm/Support/MemoryBuffer.h"
+#include "llvm/TargetParser/Host.h"
+#include "llvm/TargetParser/Triple.h"
 
 namespace include_what_you_use {
 
 using clang::CompilerInstance;
 using clang::CompilerInvocation;
-using clang::DiagnosticIDs;
 using clang::DiagnosticOptions;
 using clang::DiagnosticsEngine;
 using clang::FrontendAction;
@@ -60,10 +59,10 @@ using clang::driver::JobList;
 using llvm::ArrayRef;
 using llvm::ErrorOr;
 using llvm::IntrusiveRefCntPtr;
+using llvm::MemoryBuffer;
 using llvm::SmallString;
 using llvm::SmallVector;
 using llvm::SmallVectorImpl;
-using llvm::MemoryBuffer;
 using llvm::StringRef;
 using llvm::cast;
 using llvm::errs;

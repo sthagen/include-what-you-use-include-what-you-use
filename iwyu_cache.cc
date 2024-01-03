@@ -12,20 +12,20 @@
 #include <set>
 #include <string>
 
-#include "iwyu_ast_util.h"
-#include "iwyu_stl_util.h"
 #include "clang/AST/DeclTemplate.h"
 #include "clang/AST/TemplateBase.h"
 #include "clang/AST/Type.h"
 #include "clang/Basic/LangOptions.h"
+#include "iwyu_ast_util.h"
+#include "iwyu_stl_util.h"
 
 using clang::ClassTemplateSpecializationDecl;
 using clang::LangOptions;
 using clang::NamedDecl;
-using clang::Type;
 using clang::TemplateArgument;
 using clang::TemplateArgumentList;
 using clang::TemplateSpecializationType;
+using clang::Type;
 using std::set;
 using std::string;
 
@@ -90,7 +90,9 @@ map<const Type*, const Type*> FullUseCache::GetPrecomputedResugarMap(
   // design): we fully use all template types.  (Note: we'll have to
   // do something more clever here if any types in kFullUseTypes start
   // accepting template-template types.)
-  return GetTplTypeResugarMapForClassNoComponentTypes(tpl_type);
+  return GetTplInstDataForClassNoComponentTypes(
+             tpl_type, [](const Type* type) { return set<const Type*>(); })
+      .resugar_map;
 }
 
 }  // namespace include_what_you_use
