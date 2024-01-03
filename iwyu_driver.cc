@@ -31,17 +31,19 @@
 #include "clang/Frontend/CompilerInstance.h"
 #include "clang/Frontend/CompilerInvocation.h"
 #include "clang/Frontend/FrontendAction.h"
-#include "clang/Frontend/TextDiagnosticPrinter.h"
 #include "clang/FrontendTool/Utils.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/SmallString.h"
 #include "llvm/Option/ArgList.h"
 #include "llvm/Support/ErrorOr.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/MemoryBuffer.h"
 #include "llvm/TargetParser/Host.h"
 #include "llvm/TargetParser/Triple.h"
+
+// TODO: Clean out pragmas as IWYU improves.
+// IWYU pragma: no_include "clang/Basic/LLVM.h"
+// IWYU pragma: no_include "llvm/ADT/iterator.h"
 
 namespace include_what_you_use {
 
@@ -50,7 +52,6 @@ using clang::CompilerInvocation;
 using clang::DiagnosticOptions;
 using clang::DiagnosticsEngine;
 using clang::FrontendAction;
-using clang::TextDiagnosticPrinter;
 using clang::driver::Action;
 using clang::driver::Command;
 using clang::driver::Compilation;
@@ -60,13 +61,10 @@ using llvm::ArrayRef;
 using llvm::ErrorOr;
 using llvm::IntrusiveRefCntPtr;
 using llvm::MemoryBuffer;
-using llvm::SmallString;
 using llvm::SmallVector;
 using llvm::SmallVectorImpl;
 using llvm::StringRef;
-using llvm::cast;
 using llvm::errs;
-using llvm::isa;
 using llvm::opt::ArgStringList;
 using llvm::raw_ostream;
 using llvm::raw_string_ostream;

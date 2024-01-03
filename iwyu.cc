@@ -98,7 +98,7 @@
 #include <memory>                       // for unique_ptr
 #include <set>                          // for set, set<>::iterator, swap
 #include <string>                       // for string, operator+, etc
-#include <utility>                      // for pair, make_pair
+#include <utility>                      // for pair
 #include <vector>                       // for vector, swap
 
 #include "clang/AST/ASTConsumer.h"
@@ -140,9 +140,20 @@
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/raw_ostream.h"
 
+// TODO: Clean out pragmas as IWYU improves.
+// IWYU pragma: no_include "clang/AST/Redeclarable.h"
+// IWYU pragma: no_include "clang/AST/StmtIterator.h"
+// IWYU pragma: no_include "clang/AST/UnresolvedSet.h"
+// IWYU pragma: no_include "clang/Basic/CustomizableOptional.h"
+// IWYU pragma: no_include "clang/Lex/PPCallbacks.h"
+// IWYU pragma: no_include "llvm/ADT/iterator.h"
+// IWYU pragma: begin_keep
 namespace clang {
 class PPCallbacks;
+}  // namespace clang
+// IWYU pragma: end_keep
 
+namespace clang {
 namespace driver {
 class ToolChain;
 }
@@ -162,6 +173,7 @@ using clang::CXXBaseSpecifier;
 using clang::CXXCatchStmt;
 using clang::CXXConstructExpr;
 using clang::CXXConstructorDecl;
+using clang::CXXDefaultArgExpr;
 using clang::CXXDeleteExpr;
 using clang::CXXDestructorDecl;
 using clang::CXXForRangeStmt;
@@ -248,7 +260,6 @@ using llvm::dyn_cast;
 using llvm::dyn_cast_or_null;
 using llvm::errs;
 using llvm::isa;
-using std::make_pair;
 using std::map;
 using std::set;
 using std::string;
@@ -2317,6 +2328,12 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
     }
 
     ReportTypeUse(CurrentLoc(), type.getTypePtr(), DerefKind::RemoveRefs);
+    return true;
+  }
+
+  bool TraverseCXXDefaultArgExpr(CXXDefaultArgExpr*) {
+    // They should already be handled at the function declaration site,
+    // not at the call site.
     return true;
   }
 
