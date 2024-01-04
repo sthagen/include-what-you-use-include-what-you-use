@@ -87,13 +87,9 @@
 //     already get it via foo.h, IWYU won't recommend foo.cc to
 //     #include bar.h, unless it already does so.
 
-#include <algorithm>                    // for swap, find, make_pair
-#include <cstddef>                      // for size_t
+#include <cstdio>
 #include <cstdlib>                      // for atoi, exit
-#include <cstring>
-#include <deque>                        // for swap
-#include <iterator>                     // for find
-#include <list>                         // for swap
+#include <functional>
 #include <map>                          // for map, swap, etc
 #include <memory>                       // for unique_ptr
 #include <set>                          // for set, set<>::iterator, swap
@@ -103,21 +99,31 @@
 
 #include "clang/AST/ASTConsumer.h"
 #include "clang/AST/ASTContext.h"
+#include "clang/AST/Attr.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclBase.h"
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/DeclTemplate.h"
+#include "clang/AST/Expr.h"
+#include "clang/AST/ExprCXX.h"
 #include "clang/AST/ExprConcepts.h"
 #include "clang/AST/NestedNameSpecifier.h"
 #include "clang/AST/OperationKinds.h"
 #include "clang/AST/RecursiveASTVisitor.h"
+#include "clang/AST/StmtCXX.h"
 #include "clang/AST/TemplateBase.h"
+#include "clang/AST/TemplateName.h"
 #include "clang/AST/Type.h"
 #include "clang/AST/TypeLoc.h"
+#include "clang/Basic/Diagnostic.h"
 #include "clang/Basic/FileEntry.h"
+#include "clang/Basic/LangOptions.h"
 #include "clang/Basic/SourceLocation.h"
+#include "clang/Basic/SourceManager.h"
+#include "clang/Basic/Specifiers.h"
 #include "clang/Basic/TypeTraits.h"
 #include "clang/Frontend/CompilerInstance.h"
+#include "clang/Frontend/CompilerInvocation.h"
 #include "clang/Frontend/FrontendAction.h"
 #include "clang/Lex/Preprocessor.h"
 #include "clang/Lex/PreprocessorOptions.h"
@@ -126,19 +132,18 @@
 #include "iwyu_cache.h"
 #include "iwyu_driver.h"
 #include "iwyu_globals.h"
-#include "iwyu_lexer_utils.h"
 #include "iwyu_location_util.h"
 #include "iwyu_output.h"
-#include "iwyu_path_util.h"
 #include "iwyu_port.h"  // for CHECK_
 #include "iwyu_preprocessor.h"
 #include "iwyu_stl_util.h"
-#include "iwyu_string_util.h"
 #include "iwyu_use_flags.h"
 #include "iwyu_verrs.h"
+#include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Casting.h"
+#include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/TargetSelect.h"
-#include "llvm/Support/raw_ostream.h"
 
 // TODO: Clean out pragmas as IWYU improves.
 // IWYU pragma: no_include "clang/AST/Redeclarable.h"
@@ -154,6 +159,9 @@ class PPCallbacks;
 // IWYU pragma: end_keep
 
 namespace clang {
+class FriendDecl;
+class Stmt;
+
 namespace driver {
 class ToolChain;
 }
@@ -821,6 +829,11 @@ class BaseAstVisitor : public RecursiveASTVisitor<Derived> {
     if (FunctionDecl* fn_decl = DynCastFrom(expr->getDecl())) {
       if (!IsImplicitlyInstantiatedDfn(fn_decl))
         return true;
+      if (const auto* call_expr =  // Skip intermediate ImplicitCastExpr node.
+          current_ast_node_->GetAncestorAs<CallExpr>(2)) {
+        if (call_expr->getDirectCallee() == fn_decl)
+          return true;
+      }
       // If fn_decl has a class-name before it -- 'MyClass::method' --
       // it's a method pointer.
       const Type* parent_type = nullptr;

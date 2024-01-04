@@ -25,7 +25,10 @@
 #include "clang/AST/Expr.h"
 #include "clang/AST/ExprCXX.h"
 #include "clang/AST/NestedNameSpecifier.h"
+#include "clang/AST/OperationKinds.h"
+#include "clang/AST/PrettyPrinter.h"
 #include "clang/AST/RecursiveASTVisitor.h"
+#include "clang/AST/Redeclarable.h"
 #include "clang/AST/Stmt.h"
 #include "clang/AST/TemplateBase.h"
 #include "clang/AST/TemplateName.h"
@@ -33,6 +36,7 @@
 #include "clang/AST/TypeLoc.h"
 #include "clang/Basic/Builtins.h"
 #include "clang/Basic/FileEntry.h"
+#include "clang/Basic/IdentifierTable.h"
 #include "clang/Basic/SourceLocation.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Basic/Specifiers.h"
@@ -43,8 +47,9 @@
 #include "iwyu_stl_util.h"
 #include "iwyu_verrs.h"
 #include "llvm/ADT/ArrayRef.h"
+#include "llvm/ADT/PointerUnion.h"
+#include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Casting.h"
-#include "llvm/Support/raw_ostream.h"
 
 // TODO: Clean out pragmas as IWYU improves.
 // IWYU pragma: no_include "clang/AST/StmtIterator.h"
@@ -55,6 +60,7 @@ using clang::ArrayType;
 using clang::BlockPointerType;
 using clang::CXXConstructExpr;
 using clang::CXXConstructorDecl;
+using clang::CXXDefaultArgExpr;
 using clang::CXXDeleteExpr;
 using clang::CXXDependentScopeMemberExpr;
 using clang::CXXDestructorDecl;
@@ -82,6 +88,7 @@ using clang::Expr;
 using clang::ExprWithCleanups;
 using clang::FullSourceLoc;
 using clang::FunctionDecl;
+using clang::FunctionTemplateDecl;
 using clang::FunctionTemplateSpecializationInfo;
 using clang::FunctionType;
 using clang::IdentifierInfo;
@@ -120,6 +127,7 @@ using clang::TemplateName;
 using clang::TemplateParameterList;
 using clang::TemplateSpecializationKind;
 using clang::TemplateSpecializationType;
+using clang::TemplateTypeParmDecl;
 using clang::TranslationUnitDecl;
 using clang::Type;
 using clang::TypeAliasTemplateDecl;
@@ -899,6 +907,29 @@ static const Type* GetSugaredTypeOf(const Expr* expr) {
   return v.sugared.getTypePtr();
 }
 
+static map<const Type*, const Type*> GetDefaultedArgResugarMap(
+    const FunctionDecl* decl) {
+  map<const Type*, const Type*> res;
+  const FunctionTemplateDecl* template_decl = decl->getPrimaryTemplate();
+  if (!template_decl)
+    return res;
+  const TemplateParameterList* params = template_decl->getTemplateParameters();
+  const TemplateArgumentList* args = decl->getTemplateSpecializationArgs();
+  const unsigned count = params->size();
+  CHECK_(args->size() == count);
+  for (unsigned i = 0; i < count; ++i) {
+    if (const auto* param_decl =
+            dyn_cast<TemplateTypeParmDecl>(params->getParam(i))) {
+      const QualType type = args->get(i).getAsType().getCanonicalType();
+      if (param_decl->hasDefaultArgument() &&
+          param_decl->getDefaultArgument().getCanonicalType() == type) {
+        res.emplace(type.getTypePtr(), nullptr);
+      }
+    }
+  }
+  return res;
+}
+
 TemplateInstantiationData GetTplInstDataForFunction(
     const FunctionDecl* decl, const Expr* calling_expr,
     function<set<const Type*>(const Type*)> provided_getter) {
@@ -951,6 +982,7 @@ TemplateInstantiationData GetTplInstDataForFunction(
       for (const auto [_, sugared_type] : resugar_map)
         InsertAllInto(provided_getter(sugared_type), &provided_types);
     }
+    InsertAllInto(GetDefaultedArgResugarMap(decl), &resugar_map);
     return TemplateInstantiationData{resugar_map, provided_types};
   }
 
@@ -973,6 +1005,8 @@ TemplateInstantiationData GetTplInstDataForFunction(
   //                 under it, take the pre-cast type instead?
   set<const Type*> fn_arg_types;
   for (unsigned i = 0; i < num_args; ++i) {
+    if (isa<CXXDefaultArgExpr>(fn_args[i]))
+      break;
     const Type* argtype = GetSugaredTypeOf(fn_args[i]);
     // TODO(csilvers): handle RecordTypes that are a TemplateSpecializationDecl
     InsertAllInto(GetComponentsOfType(argtype), &fn_arg_types);
@@ -997,6 +1031,8 @@ TemplateInstantiationData GetTplInstDataForFunction(
     // argument.
     InsertAllInto(provided_getter(type), &provided_types);
   }
+
+  InsertAllInto(GetDefaultedArgResugarMap(decl), &resugar_map);
 
   // Log the types we never mapped.
   for (const auto& types : desugared_types) {

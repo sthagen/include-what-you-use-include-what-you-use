@@ -11,3 +11,22 @@ template <typename T>
 struct UninstantiatedTpl {
   T t;
 };
+
+class IndirectClass;
+
+// Use of this function template instantiated with the default argument requires
+// complete 'IndirectClass' type info because this header doesn't provide it.
+template <typename T = IndirectClass>
+void FnWithNonProvidedDefaultTplArg() {
+  T t;
+}
+
+// Use of this function template instantiated with the default argument and
+// called **without explicit ordinary argument** requires complete
+// 'IndirectClass' type info because this header doesn't provide it.
+template <typename T = IndirectClass>
+void FnWithNonProvidedDefaultTplArgAndDefaultCallArg(T* = nullptr) {
+  T t;
+}
+
+using NonProvidingAlias = IndirectClass;
