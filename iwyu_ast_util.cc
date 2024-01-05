@@ -920,6 +920,8 @@ static map<const Type*, const Type*> GetDefaultedArgResugarMap(
   for (unsigned i = 0; i < count; ++i) {
     if (const auto* param_decl =
             dyn_cast<TemplateTypeParmDecl>(params->getParam(i))) {
+      if (param_decl->isParameterPack())
+        continue;
       const QualType type = args->get(i).getAsType().getCanonicalType();
       if (param_decl->hasDefaultArgument() &&
           param_decl->getDefaultArgument().getCanonicalType() == type) {
@@ -945,7 +947,7 @@ TemplateInstantiationData GetTplInstDataForFunction(
     resugar_map = GetTplTypeResugarMapForFunctionNoCallExpr(decl, 0);
     resugar_map = ResugarTypeComponents(
         resugar_map);  // add in resugar_map's decomposition
-    return TemplateInstantiationData{resugar_map};
+    return TemplateInstantiationData{resugar_map, {}};
   }
 
   // If calling_expr is a CXXConstructExpr of CXXNewExpr, then it's
@@ -1506,7 +1508,7 @@ TemplateInstantiationData GetTplInstDataForClassNoComponentTypes(
   map<const Type*, const Type*> retval;
   const auto* tpl_spec_type = type->getAs<TemplateSpecializationType>();
   if (!tpl_spec_type) {
-    return TemplateInstantiationData{retval};
+    return TemplateInstantiationData{retval, {}};
   }
 
   // Pull the template arguments out of the specialization type. If this is
