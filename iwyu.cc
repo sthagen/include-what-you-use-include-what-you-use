@@ -1761,6 +1761,34 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
     return true;
   }
 
+  // The explicit traversal of 'CXXForRangeStmt' is introduced to avoid
+  // a problem with code like this:
+  //
+  // using ProvidingRefAlias = Container&;
+  // ProvidingRefAlias ref_provided = ...;
+  // for (int x : ref_provided) ...
+  //
+  // After initialization of implicit range variable, the specific providing
+  // type is desugared. Due to this, it is reported e.g. on handling
+  // the implicit call of 'begin()' method despite being provided by alias.
+  // Explicit traversal without handling for-loop implicit variables allows
+  // to avoid such an unwanted reporting of the provided type. The code does
+  // essentially the same that the default implementation does when
+  // 'shouldVisitImplicitCode()' returns 'false'.
+  bool TraverseCXXForRangeStmt(CXXForRangeStmt* stmt) {
+    if (!this->getDerived().WalkUpFromCXXForRangeStmt(stmt))
+      return false;
+    if (Stmt* init_stmt = stmt->getInit()) {
+      if (!this->getDerived().TraverseStmt(init_stmt))
+        return false;
+    }
+    if (!this->getDerived().TraverseStmt(stmt->getLoopVarStmt()))
+      return false;
+    if (!this->getDerived().TraverseStmt(stmt->getRangeInit()))
+      return false;
+    return this->getDerived().TraverseStmt(stmt->getBody());
+  }
+
   // The type of the for-range-init expression is fully required, because the
   // compiler generates method calls to it, e.g. 'for (auto t : ts)' translates
   // roughly into 'for (auto i = std::begin(ts); i != std::end(ts); ++i)'.
@@ -2563,16 +2591,19 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
     type = Desugar(type);
     if (deref_kind == DerefKind::RemoveRefs ||
         deref_kind == DerefKind::RemoveRefsAndPtr) {
-      if (const auto* ref_type = dyn_cast_or_null<ReferenceType>(type))
-        type = ref_type->getPointeeTypeAsWritten().getTypePtr();
-      // Keep deref_kind to remove possible additional references in type alias
-      // chain.
-      // TODO(bolshakov): shouldn't Desugar be called here and below as well?
+      if (const auto* ref_type = dyn_cast_or_null<ReferenceType>(type)) {
+        // Keep deref_kind to remove possible additional references in type
+        // alias chain.
+        return ReportTypeUseInternal(
+            used_loc, ref_type->getPointeeTypeAsWritten().getTypePtr(),
+            blocked_types, deref_kind);
+      }
     }
     if (deref_kind == DerefKind::RemoveRefsAndPtr) {
       if (const auto* ptr_type = dyn_cast_or_null<PointerType>(type)) {
-        type = ptr_type->getPointeeType().getTypePtr();
-        deref_kind = DerefKind::None;
+        return ReportTypeUseInternal(used_loc,
+                                     ptr_type->getPointeeType().getTypePtr(),
+                                     blocked_types, DerefKind::None);
       }
     }
 
@@ -2615,11 +2646,10 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
                  << typedef_decl->getQualifiedNameAsString()
                  << " owns the underlying type:\n";
         // If any of the used types are themselves typedefs, this will
-        // result in a recursive expansion.  Note we are careful to
-        // recurse inside this class, and not go back to subclasses.
+        // result in a recursive expansion.
         const Type* type = typedef_decl->getUnderlyingType().getTypePtr();
-        IwyuBaseAstVisitor<Derived>::ReportTypeUseInternal(
-            used_loc, type, provided_with_typedef, deref_kind);
+        ReportTypeUseInternal(used_loc, type, provided_with_typedef,
+                              deref_kind);
       }
       return;
     }
