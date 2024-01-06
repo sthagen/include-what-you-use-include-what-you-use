@@ -20,6 +20,7 @@ import operator
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import unittest
@@ -182,38 +183,7 @@ class Features:
 _FEATURES = Features()
 
 
-def _Which(program, paths):
-    """Searches specified paths for program."""
-    if sys.platform == 'win32' and not program.lower().endswith('.exe'):
-        program += '.exe'
-
-    for path in paths:
-        candidate = os.path.join(os.path.normpath(path), program)
-        if os.path.isfile(candidate):
-            return candidate
-
-    return None
-
-
-_IWYU_PATH = None
-_SYSTEM_PATHS = [p.strip('"') for p in os.environ["PATH"].split(os.pathsep)]
-_IWYU_PATHS = [
-    '../../../../Debug+Asserts/bin',
-    '../../../../Release+Asserts/bin',
-    '../../../../Release/bin',
-    '../../../../build/Debug+Asserts/bin',
-    '../../../../build/Release+Asserts/bin',
-    '../../../../build/Release/bin',
-    # Linux/Mac OS X default out-of-tree paths.
-    '../../../../../build/Debug+Asserts/bin',
-    '../../../../../build/Release+Asserts/bin',
-    '../../../../../build/Release/bin',
-    # Windows default out-of-tree paths.
-    '../../../../../build/bin/Debug',
-    '../../../../../build/bin/Release',
-    '../../../../../build/bin/MinSizeRel',
-    '../../../../../build/bin/RelWithDebInfo',
-    ]
+_IWYU_PATH = shutil.which('include-what-you-use')
 
 
 def SetIwyuPath(iwyu_path):
@@ -225,15 +195,8 @@ def SetIwyuPath(iwyu_path):
 
 def _GetIwyuPath():
   """Returns the path to IWYU or raises IOError if it cannot be found."""
-  global _IWYU_PATH
-
   if not _IWYU_PATH:
-    iwyu_paths = _IWYU_PATHS + _SYSTEM_PATHS
-    _IWYU_PATH = _Which('include-what-you-use', iwyu_paths)
-    if not _IWYU_PATH:
-      raise IOError('Failed to locate IWYU.\nSearched\n %s' %
-                    '\n '.join(iwyu_paths))
-
+    raise IOError('\'include-what-you-use\' not found in PATH')
   return _IWYU_PATH
 
 
