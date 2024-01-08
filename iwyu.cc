@@ -123,10 +123,8 @@
 #include "clang/Basic/Specifiers.h"
 #include "clang/Basic/TypeTraits.h"
 #include "clang/Frontend/CompilerInstance.h"
-#include "clang/Frontend/CompilerInvocation.h"
 #include "clang/Frontend/FrontendAction.h"
 #include "clang/Lex/Preprocessor.h"
-#include "clang/Lex/PreprocessorOptions.h"
 #include "clang/Sema/Sema.h"
 #include "iwyu_ast_util.h"
 #include "iwyu_cache.h"
@@ -178,6 +176,7 @@ using clang::ArraySubscriptExpr;
 using clang::Attr;
 using clang::BinaryOperator;
 using clang::CXXBaseSpecifier;
+using clang::CXXBindTemporaryExpr;
 using clang::CXXCatchStmt;
 using clang::CXXConstructExpr;
 using clang::CXXConstructorDecl;
@@ -2170,7 +2169,10 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
     ReportIfReferenceVararg(expr->getArgs(), expr->getNumArgs(),
                             expr->getConstructor());
 
-    HandleAutocastOnCallSite(expr);
+    if (IsAutocastExpr(current_ast_node()))
+      HandleAutocastOnCallSite(expr);
+    else
+      HandleNonAutocastConstruction(expr);
 
     return true;
   }
@@ -2589,6 +2591,13 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
   // 'Tpl<Providing>::Type'.
   bool IsProvidedByTplArg(const Type*) = delete;
 
+  // Returns 'true' if either argument or "destination" (currently, function
+  // argument type if it is an argument construction) of 'CXXConstructExpr'
+  // provides the constructed type. In that case, the type should not
+  // be reported.
+  bool SourceOrTargetTypeIsProvided(const ASTNode* construct_expr_node) const =
+      delete;
+
   set<const Type*> GetProvidedTypes(const Type* type,
                                     SourceLocation loc) const {
     set<const Type*> retval;
@@ -2722,11 +2731,20 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
     // here.  *However*, the function-author can override this
     // iwyu requirement, in which case we're responsible for the
     // casted-to type.  See IwyuBaseASTVisitor::CanBeProvidedTypeComponent.
-    if (!IsAutocastExpr(current_ast_node()))
-      return;
     const Type* type = expr->getType().getTypePtr();
     ReportWithAdditionalBlockedTypes(
         type, GetProvidedTypesForAutocast(current_ast_node()));
+  }
+
+  void HandleNonAutocastConstruction(clang::CXXConstructExpr* expr) {
+    // Avoid reporting of class members from implicit constructor member
+    // initializers: it is redundant and may be attributed to incorrect location
+    // on macro expansion.
+    if (IsCXXConstructExprInInitializer(current_ast_node()))
+      return;
+    if (this->getDerived().SourceOrTargetTypeIsProvided(current_ast_node()))
+      return;
+    ReportTypeUse(CurrentLoc(), expr->getType().getTypePtr(), DerefKind::None);
   }
 
   // Do not add any variables here!  If you do, they will not be shared
@@ -3268,6 +3286,12 @@ class InstantiatedTemplateVisitor
     return false;
   }
 
+  bool SourceOrTargetTypeIsProvided(const ASTNode* construct_expr_node) const {
+    // During instantiated template analysis, provided types are extracted
+    // from template arguments and are in 'blocked_types_' set.
+    return false;
+  }
+
  private:
   // Clears the state of the visitor.
   void Clear() {
@@ -3381,21 +3405,7 @@ class InstantiatedTemplateVisitor
     }
 
     // We need to iterate over the function.
-    if (!TraverseDecl(const_cast<FunctionDecl*>(fn_decl)))
-      return false;
-
-    // If we're a constructor, we also need to construct the entire class,
-    // even typedefs that aren't used at construct time. Try compiling
-    //    template<class T> struct C { typedef typename T::a t; };
-    //    class S; int main() { C<S> c; }
-    if (isa<CXXConstructorDecl>(fn_decl)) {
-      CHECK_(parent_type && "How can a constructor have no parent?");
-      parent_type = Desugar(parent_type);
-      if (!TraverseDataAndTypeMembersOfClassHelper(
-              dyn_cast<TemplateSpecializationType>(parent_type)))
-        return false;
-    }
-    return true;
+    return TraverseDecl(const_cast<FunctionDecl*>(fn_decl));
   }
 
   // Does the actual recursing over data members and type members of
@@ -3869,23 +3879,10 @@ class IwyuAstConsumer
     // though, because that will drag in every overload even if we're
     // only using one.  Instead, we keep track of the using decl and
     // mark it as touched when something actually uses it.
-    IwyuFileInfo* file_info =
-        preprocessor_info().FileInfoFor(CurrentFileEntry());
-    if (file_info) {
-      file_info->AddUsingDecl(decl);
-    } else {
-      // For using declarations in a PCH, the preprocessor won't have any
-      // location information. As far as we know, that's the only time the
-      // file-info will be null, so assert that we have a PCH on the
-      // command-line.
-      const string& pch_include =
-           compiler()->getInvocation().getPreprocessorOpts().ImplicitPCHInclude;
-      CHECK_(!pch_include.empty());
-    }
+    preprocessor_info().FileInfoFor(CurrentFileEntry())->AddUsingDecl(decl);
 
     if (CanIgnoreCurrentASTNode())
       return true;
-
     return Base::VisitUsingDecl(decl);
   }
 
@@ -4309,6 +4306,35 @@ class IwyuAstConsumer
           return data.provided_types.count(GetCanonicalType(type));
         }
       }
+    }
+    return false;
+  }
+
+  bool SourceOrTargetTypeIsProvided(const ASTNode* construct_expr_node) const {
+    const auto* expr = construct_expr_node->GetAs<CXXConstructExpr>();
+    CHECK_(expr);
+    const Type* type = GetCanonicalType(GetTypeOf(expr));
+    if (expr->getConstructor()->isCopyOrMoveConstructor()) {
+      const Type* source_type =
+          GetTypeOf(expr->getArg(0)->IgnoreParenImpCasts());
+      if (GetProvidedTypeComponents(source_type).count(type))
+        return true;
+    }
+
+    auto get_call_expr = [](const ASTNode* node) -> const CallExpr* {
+      if (const auto* call_expr = node->template GetParentAs<CallExpr>())
+        return call_expr;
+      if (node->template ParentIsA<CXXBindTemporaryExpr>())
+        return node->template GetAncestorAs<CallExpr>(2);
+      return nullptr;
+    };
+
+    if (const CallExpr* call_expr = get_call_expr(construct_expr_node)) {
+      const FunctionDecl* fn_decl = call_expr->getDirectCallee();
+      // For nontemplated functions, 'CXXConstructExpr' type appears to be
+      // sugared and hence handled correctly inside 'ReportTypeUse'.
+      if (GetTplInstData(fn_decl, call_expr).provided_types.count(type))
+        return true;
     }
     return false;
   }
