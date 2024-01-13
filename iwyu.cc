@@ -199,6 +199,7 @@ using clang::ConceptSpecializationExpr;
 using clang::Decl;
 using clang::DeclContext;
 using clang::DeclRefExpr;
+using clang::DecltypeType;
 using clang::DeducedTemplateSpecializationType;
 using clang::ElaboratedType;
 using clang::ElaboratedTypeKeyword;
@@ -2446,6 +2447,14 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
     return true;
   }
 
+  bool VisitDecltypeType(DecltypeType* type) {
+    if (CanIgnoreCurrentASTNode())
+      return true;
+    if (!CanForwardDeclareType(current_ast_node()))
+      ReportTypeUse(CurrentLoc(), type, DerefKind::None);
+    return true;
+  }
+
   //------------------------------------------------------------
   // Visitors defined by BaseAstVisitor.
 
@@ -4330,11 +4339,13 @@ class IwyuAstConsumer
     };
 
     if (const CallExpr* call_expr = get_call_expr(construct_expr_node)) {
-      const FunctionDecl* fn_decl = call_expr->getDirectCallee();
-      // For nontemplated functions, 'CXXConstructExpr' type appears to be
-      // sugared and hence handled correctly inside 'ReportTypeUse'.
-      if (GetTplInstData(fn_decl, call_expr).provided_types.count(type))
-        return true;
+      // There is no callee for unresolved call exprs in template definitions.
+      if (const FunctionDecl* fn_decl = call_expr->getDirectCallee()) {
+        // For nontemplated functions, 'CXXConstructExpr' type appears to be
+        // sugared and hence handled correctly inside 'ReportTypeUse'.
+        if (GetTplInstData(fn_decl, call_expr).provided_types.count(type))
+          return true;
+      }
     }
     return false;
   }
