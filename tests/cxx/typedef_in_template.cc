@@ -122,6 +122,12 @@ struct Identity {
   struct Inner {
     using Type = T;
   };
+
+  static T t;
+  using SugaredType = decltype(t);
+
+  template <int>
+  using AliasTemplate = T;
 };
 
 template <typename T>
@@ -167,7 +173,20 @@ void ArgumentTypeProvision() {
   Outer<Providing>::Inner<IndirectClass*>::AliasedTpl p_ptr;
   // IWYU: IndirectClass needs a declaration
   Outer<IndirectClass*>::Inner<Providing>::AliasedTpl ptr_p;
+
+  Identity<Providing>::AliasTemplate<1> atp;
+  (void)sizeof(Identity<Providing>::AliasTemplate<1>);
+  // IWYU: NonProviding is...*typedef_in_template-i1.h
+  // IWYU: IndirectClass is...*indirect.h
+  Identity<NonProviding>::AliasTemplate<1> atn;
+  // IWYU: NonProviding is...*typedef_in_template-i1.h
+  // IWYU: IndirectClass is...*indirect.h
+  (void)sizeof(Identity<NonProviding>::AliasTemplate<1>);
 }
+
+// IWYU: IndirectClass needs a declaration
+// IWYU: IndirectClass is...*indirect.h
+constexpr auto s3 = sizeof(Identity<IndirectClass>::SugaredType);
 
 /**** IWYU_SUMMARY
 

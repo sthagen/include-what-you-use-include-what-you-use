@@ -13,6 +13,22 @@
 
 #include "tests/cxx/direct.h"
 
+template <typename T>
+using Identity = T;
+
+// IWYU: IndirectClass needs a declaration
+// IWYU: IndirectClass is...*indirect.h
+Identity<IndirectClass> ic;
+// IWYU: IndirectClass is...*indirect.h
+constexpr auto s = sizeof(ic);
+// IWYU: IndirectClass needs a declaration
+Identity<IndirectClass>* pic = nullptr;
+
+// IWYU: IndirectClass is...*indirect.h
+using Providing = IndirectClass;
+
+Identity<Providing> type_is_provided_by_arg;
+
 template<class T> struct FullUseTemplateArgInSizeof {
   char argument[sizeof(T)];
 };
@@ -53,6 +69,26 @@ using AliasNested2 = FullUseTemplateArgInSizeof<FullUseTemplateArgInSizeof<T>>;
 // IWYU: IndirectClass needs a declaration
 // IWYU: IndirectClass is...*indirect.h
 AliasNested2<IndirectClass> aliasNested2;
+
+template <typename T>
+using UsingArgInternals = decltype(T::a);
+
+// IWYU: IndirectClass needs a declaration
+// IWYU: IndirectClass is...*indirect.h
+UsingArgInternals<IndirectClass> aliased_int;
+// Full type is needed even in fwd-decl context.
+// IWYU: IndirectClass needs a declaration
+// IWYU: IndirectClass is...*indirect.h
+UsingArgInternals<IndirectClass>* p_int = nullptr;
+
+template <typename T>
+struct TplWithUsingArgInternals {
+  UsingArgInternals<T>* p = nullptr;
+};
+
+// IWYU: IndirectClass needs a declaration
+// IWYU: IndirectClass is...*indirect.h
+TplWithUsingArgInternals<IndirectClass> twuai;
 
 /**** IWYU_SUMMARY
 
