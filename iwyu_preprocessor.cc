@@ -18,6 +18,7 @@
 #include "clang/Basic/IdentifierTable.h"
 #include "clang/Basic/TokenKinds.h"
 #include "clang/Lex/MacroInfo.h"
+#include "clang/Lex/Token.h"
 #include "iwyu_ast_util.h"
 #include "iwyu_globals.h"
 #include "iwyu_include_picker.h"
@@ -42,6 +43,7 @@ class Module;
 using clang::CharSourceRange;
 using clang::FileEntryRef;
 using clang::FileID;
+using clang::IdentifierInfo;
 using clang::MacroArgs;
 using clang::MacroDefinition;
 using clang::MacroDirective;
@@ -108,6 +110,17 @@ static string GetIncludeNameAsWritten(SourceLocation include_loc) {
 
 static string GetName(const Token& token) {
   return token.getIdentifierInfo()->getName().str();
+}
+
+static SourceLocation GetMacroDefLoc(const MacroInfo* macro) {
+  if (!macro) {
+    return SourceLocation();
+  }
+  return macro->getDefinitionLoc();
+}
+
+static SourceLocation GetMacroDefLoc(const MacroDefinition& macro) {
+  return GetMacroDefLoc(macro.getMacroInfo());
 }
 
 //------------------------------------------------------------
@@ -677,54 +690,51 @@ void IwyuPreprocessorInfo::MacroDefined(const Token& id,
   ERRSYM(GetFileEntry(macro_loc))
       << "[ #define     ] " << PrintableLoc(macro_loc) << ": " << GetName(id)
       << "\n";
-  // We'd like to do an iwyu check on every token in the macro
-  // definition, but without knowing how and where the macro will be
-  // used, we don't have enough context to.  But we *can* check those
-  // tokens that are macro calls: that is, one macro calling another.
-  // We can't do the checking as we go, since macros can refer to
-  // macros that come after them in the source file, so we just store
-  // every macro that's defined, and every macro it calls from its
-  // body, and then after reading the whole file we do an iwyu
-  // analysis on the results.  (This can make mistakes if the code
-  // #undefs and re-defines a macro, but should work fine in practice.)
-  if (macro_loc.isValid())
-    macros_definition_loc_[GetName(id)] = macro_loc;
+  // We'd love to test macro bodies more completely -- like we do template
+  // bodies -- but we don't have enough context to know how to interpret the
+  // tokens we see, in general). Our heuristic is: if a token inside a macro X
+  // identifies a known-defined macro Y, we say that X uses Y.
   for (const Token& token_in_macro : macro->tokens()) {
-    if (token_in_macro.getKind() == clang::tok::identifier &&
-        token_in_macro.getIdentifierInfo()->hasMacroDefinition()) {
-      macros_called_from_macros_.push_back(token_in_macro);
+    if (token_in_macro.getKind() != clang::tok::identifier)
+      continue;
+
+    const clang::IdentifierInfo* token_id = token_in_macro.getIdentifierInfo();
+    if (!token_id->hasMacroDefinition())
+      continue;
+
+    if (const MacroInfo* macro_ref = preprocessor_.getMacroInfo(token_id)) {
+      ReportMacroUse(GetName(token_in_macro), token_in_macro.getLocation(),
+                     GetMacroDefLoc(macro_ref));
     }
   }
 }
 
-void IwyuPreprocessorInfo::Ifdef(SourceLocation loc,
-                                 const Token& id,
-                                 const MacroDefinition& /*definition*/) {
+void IwyuPreprocessorInfo::Ifdef(SourceLocation loc, const Token& id,
+                                 const MacroDefinition& definition) {
   ERRSYM(GetFileEntry(id.getLocation()))
       << "[ #ifdef      ] " << PrintableLoc(id.getLocation()) << ": "
       << GetName(id) << "\n";
-  FindAndReportMacroUse(GetName(id), id.getLocation());
+  ReportMacroUse(GetName(id), id.getLocation(), GetMacroDefLoc(definition));
 }
 
-void IwyuPreprocessorInfo::Ifndef(SourceLocation loc,
-                                  const Token& id,
-                                  const MacroDefinition& /*definition*/) {
+void IwyuPreprocessorInfo::Ifndef(SourceLocation loc, const Token& id,
+                                  const MacroDefinition& definition) {
   ERRSYM(GetFileEntry(id.getLocation()))
       << "[ #ifndef     ] " << PrintableLoc(id.getLocation()) << ": "
       << GetName(id) << "\n";
-  FindAndReportMacroUse(GetName(id), id.getLocation());
+  ReportMacroUse(GetName(id), id.getLocation(), GetMacroDefLoc(definition));
 }
 
 // Clang will give a MacroExpands() callback for all macro-tokens
 // used inside an #if or #elif, *except* macro-tokens used within a
 // 'defined' operator. They produce a Defined() callback.
 void IwyuPreprocessorInfo::Defined(const Token& id,
-                                   const MacroDefinition& /*definition*/,
+                                   const MacroDefinition& definition,
                                    SourceRange /*range*/) {
   ERRSYM(GetFileEntry(id.getLocation()))
       << "[ #if defined ] " << PrintableLoc(id.getLocation()) << ": "
       << GetName(id) << "\n";
-  FindAndReportMacroUse(GetName(id), id.getLocation());
+  ReportMacroUse(GetName(id), id.getLocation(), GetMacroDefLoc(definition));
 }
 
 void IwyuPreprocessorInfo::InclusionDirective(
@@ -897,15 +907,6 @@ void IwyuPreprocessorInfo::ReportMacroUse(const string& name,
   GetFromFileInfoMap(defined_in)->ReportDefinedMacroUse(used_in);
 }
 
-// As above, but get the definition location from macros_definition_loc_.
-void IwyuPreprocessorInfo::FindAndReportMacroUse(const string& name,
-                                                 SourceLocation loc) {
-  if (const SourceLocation* dfn_loc =
-          FindInMap(&macros_definition_loc_, name)) {
-    ReportMacroUse(name, loc, *dfn_loc);
-  }
-}
-
 //------------------------------------------------------------
 // Post-processing functions (done after all source is read).
 
@@ -1031,16 +1032,6 @@ void IwyuPreprocessorInfo::PopulateTransitiveIncludeMap() {
 void IwyuPreprocessorInfo::HandlePreprocessingDone() {
   CHECK_(main_file_ && "Main file should be present");
   FileChanged_ExitToFile(SourceLocation(), main_file_);
-
-  // In some cases, macros can refer to macros in files that are
-  // defined later in other files.  In those cases, we can't
-  // do an iwyu check until all header files have been read.
-  // (For instance, if we see '#define FOO(x) BAR(!x)', BAR doesn't
-  // actually have to be defined until FOO is actually used, which
-  // could be later in the preprocessing.)
-  for (const Token& token : macros_called_from_macros_) {
-    FindAndReportMacroUse(GetName(token), token.getLocation());
-  }
 
   // Other post-processing steps.
   for (auto& file_info_map_entry : iwyu_file_info_map_) {
