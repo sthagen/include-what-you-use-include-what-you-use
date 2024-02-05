@@ -568,6 +568,11 @@ static bool IsSubstTemplateTypeParmType(const Type* type) {
   do {
     if (isa<SubstTemplateTypeParmType>(type))
       return true;
+    if (isa<TypedefType>(type) || isa<TemplateSpecializationType>(type)) {
+      // Still may be substituted outer template parameter but needs additional
+      // analysis outside this function.
+      return false;
+    }
     prev_type = type;
     type = type->getLocallyUnqualifiedSingleStepDesugaredType().getTypePtr();
   } while (type != prev_type);
@@ -681,7 +686,7 @@ class TypeEnumeratorWithoutSubstituted
     if (IsSubstTemplateTypeParmType(type))
       return true;
 
-    seen_types_.insert(GetCanonicalType(type));
+    seen_types_.insert(Desugar(type));
 
     return Base::TraverseType(qual_type);
   }

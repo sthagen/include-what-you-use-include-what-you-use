@@ -1,4 +1,4 @@
-//===--- cvr-class.h - test input file for iwyu ---------------------------===//
+//===--- typedef_chain_in_template-i2.h - test input file for iwyu --------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,9 +7,9 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef INCLUDE_WHAT_YOU_USE_TESTS_CXX_CVR_CLASS_H_
-#define INCLUDE_WHAT_YOU_USE_TESTS_CXX_CVR_CLASS_H_
+class TypedefChainClass;
 
-class Class {};
+using NonProvidingAlias = TypedefChainClass;
 
-#endif  // INCLUDE_WHAT_YOU_USE_TESTS_CXX_CVR_CLASS_H_
+template <int>
+using NonProvidingAliasTpl = TypedefChainClass;

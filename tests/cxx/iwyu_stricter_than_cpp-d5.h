@@ -1,4 +1,4 @@
-//===--- cvr-class.h - test input file for iwyu ---------------------------===//
+//===--- iwyu_stricter_than_cpp-d5.h - test input file for iwyu -----------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,9 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef INCLUDE_WHAT_YOU_USE_TESTS_CXX_CVR_CLASS_H_
-#define INCLUDE_WHAT_YOU_USE_TESTS_CXX_CVR_CLASS_H_
+#include "iwyu_stricter_than_cpp-i4.h"
 
-class Class {};
+// No forward-declaration of 'IndirectClass' here.
 
-#endif  // INCLUDE_WHAT_YOU_USE_TESTS_CXX_CVR_CLASS_H_
+IndirectStruct4::IndirectClassNonProvidingTypedef RetNonProvidingTypedef();
