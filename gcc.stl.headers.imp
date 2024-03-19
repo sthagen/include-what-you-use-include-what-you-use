@@ -56,6 +56,7 @@
   { include: ["<bits/locale_facets.tcc>", private, "<locale>", public ] },
   { include: ["<bits/localefwd.h>", private, "<locale>", public ] },
   { include: ["<bits/mask_array.h>", private, "<valarray>", public ] },
+  { include: ["<bits/memory_resource.h>", private, "<memory_resource>", public ] },
   { include: ["<bits/memoryfwd.h>", private, "<memory>", public ] },
   { include: ["<bits/move.h>", private, "<utility>", public ] },
   { include: ["<bits/nested_exception.h>", private, "<exception>", public ] },
@@ -128,6 +129,7 @@
   { include: ["<bits/unique_ptr.h>", private, "<memory>", public ] },
   { include: ["<bits/unordered_map.h>", private, "<unordered_map>", public ] },
   { include: ["<bits/unordered_set.h>", private, "<unordered_set>", public ] },
+  { include: ["<bits/uses_allocator.h>", private, "<memory>", public ] },
   { include: ["<bits/utility.h>", private, "<utility>", public ] },
   { include: ["<bits/valarray_after.h>", private, "<valarray>", public ] },
   { include: ["<bits/valarray_array.h>", private, "<valarray>", public ] },
@@ -308,7 +310,6 @@
   # ( cd /usr/crosstool/v12/gcc-4.3.1-glibc-2.3.6-grte/x86_64-unknown-linux-gnu/x86_64-unknown-linux-gnu/include/c++/4.3.1 && grep -R '^ *# *include.*tcc' * | perl -nle 'm/^([^:]+).*[<"]([^>"]+)[>"]/ && print qq@    { include: ["<$2>", private, "<$1>", public ] },@' | sort )
   # I had to manually edit some of the entries to say the map-to is private.
   { include: ["<bits/cmath.tcc>", private, "<cmath>", public ] },
-  { include: ["<debug/safe_iterator.tcc>", private, "<debug/safe_iterator.h>", public ] },
   { include: ["<tr1_impl/random.tcc>", private, "<tr1_impl/random>", private ] },
   # Some bits->bits //includes: A few files in bits re-export
   # symbols from other files in bits.
