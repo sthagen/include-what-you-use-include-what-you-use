@@ -258,6 +258,10 @@ const IncludeMapEntry stdlib_cxx_symbol_map[] = {
   { "std::char_traits", kPrivate, "<ostream>", kPublic },
   { "std::char_traits", kPrivate, "<istream>", kPublic },
 
+  // std::ptrdiff_t is often an architecture specific definition, force the
+  // canonical location.
+  { "std::ptrdiff_t", kPrivate, "<cstddef>", kPublic },
+
   { "std::size_t", kPrivate, "<cstddef>", kPublic },  // 'canonical' location for std::size_t
   { "std::size_t", kPrivate, "<cstdio>", kPublic },
   { "std::size_t", kPrivate, "<cstdlib>", kPublic },
@@ -814,11 +818,9 @@ const IncludeMapEntry libstdcpp_include_map[] = {
   { "<tr1/unordered_map.h>", kPrivate, "<tr1/unordered_map>", kPublic },
   { "<tr1/unordered_set.h>", kPrivate, "<tr1/unordered_set>", kPublic },
   { "<tr2/dynamic_bitset.tcc>", kPrivate, "<tr2/dynamic_bitset>", kPublic },
-  // cd /usr/include/x86_64-linux-gnu/c++/10 && grep -r headername | perl -nle 'm/^([^:]+).*@headername\{([^,]*)\}/ && print qq@  { "<$1>", kPrivate, "<$2>", kPublic },@' | sort -u
+  // cd /usr/include/x86_64-linux-gnu/c++/11 && grep -r headername | grep -v "c++config.h" | perl -nle 'm/^([^:]+).*@headername\{([^,]*)\}/ && print qq@  { "<$1>", kPrivate, "<$2>", kPublic },@' | sort -u
   { "<bits/basic_file.h>", kPrivate, "<ios>", kPublic },
   { "<bits/c++allocator.h>", kPrivate, "<memory>", kPublic },
-  { "<bits/c++config.h>", kPrivate, "<iosfwd>", kPublic },
-  { "<bits/c++config.h>", kPrivate, "<version>", kPublic },
   { "<bits/c++io.h>", kPrivate, "<ios>", kPublic },
   { "<bits/c++locale.h>", kPrivate, "<locale>", kPublic },
   { "<bits/cpu_defines.h>", kPrivate, "<iosfwd>", kPublic },
