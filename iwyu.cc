@@ -139,6 +139,7 @@
 #include "iwyu_verrs.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/ADT/iterator_range.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/TargetSelect.h"
@@ -222,7 +223,6 @@ using clang::NamespaceAliasDecl;
 using clang::NestedNameSpecifier;
 using clang::NestedNameSpecifierLoc;
 using clang::OptionalFileEntryRef;
-using clang::OverloadExpr;
 using clang::PPCallbacks;
 using clang::ParmVarDecl;
 using clang::PointerType;
@@ -259,6 +259,7 @@ using clang::TypedefDecl;
 using clang::TypedefNameDecl;
 using clang::TypedefType;
 using clang::UnaryExprOrTypeTraitExpr;
+using clang::UnresolvedLookupExpr;
 using clang::UsingDecl;
 using clang::UsingDirectiveDecl;
 using clang::UsingShadowDecl;
@@ -2184,9 +2185,9 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
     return true;
   }
 
-  // An OverloadExpr is an overloaded function (or method) in an
-  // uninstantiated template, that can't be resolved until the
-  // template is instantiated.  The simplest case is something like:
+  // An UnresolvedLookupExpr is an overloaded function or variable template
+  // reference in an uninstantiated template, that can't be resolved until
+  // the template is instantiated.  The simplest case is something like:
   //    void Foo(int) { ... }
   //    void Foo(float) { ... }
   //    template<typename T> Fn(T t) { Foo(t); }
@@ -2200,12 +2201,10 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
   // an iwyu warning now, even without knowing the exact overload.
   // In that case, we store the fact we warned, so we won't warn again
   // when the template is instantiated.
-  // TODO(csilvers): to be really correct, we should report *every*
-  // overload that callers couldn't match via ADL.
-  bool VisitOverloadExpr(OverloadExpr* expr) {
+  // Otherwise, all directly included overloads are reported just to be kept.
+  bool VisitUnresolvedLookupExpr(UnresolvedLookupExpr* expr) {
     // No CanIgnoreCurrentASTNode() check here!  It's later in the function.
 
-    // Make sure all overloads are in the same file.
     if (expr->decls_begin() == expr->decls_end()) {
       // This can occur when there are no overloads before the template
       // definition, and a callee may be found only via ADL.
@@ -2213,18 +2212,47 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
     }
     const NamedDecl* first_decl = *expr->decls_begin();
     OptionalFileEntryRef first_decl_file_entry = GetFileEntry(first_decl);
-    for (OverloadExpr::decls_iterator it = expr->decls_begin();
-         it != expr->decls_end(); ++it) {
-      if (GetFileEntry(*it) != first_decl_file_entry)
-        return true;
+    OptionalFileEntryRef current_file_entry = GetFileEntry(CurrentLoc());
+    const IwyuFileInfo* current_file_info =
+        preprocessor_info().FileInfoFor(current_file_entry);
+    if (!current_file_info)
+      return true;
+    vector<const NamedDecl*> directly_included;
+    bool same_file = true;
+    for (const NamedDecl* decl : expr->decls()) {
+      // TODO(bolshakov): filter overloads suitable by number and type
+      // of parameters. Take into account default arguments, ellipsis, explicit
+      // template arguments, and pack expansions. See
+      // clang::Sema::AddOverloadedCallCandidates for guidance.
+      if (IsDirectlyIncluded(decl, *current_file_info))
+        directly_included.push_back(decl);
+      same_file &= GetFileEntry(decl) == first_decl_file_entry;
     }
 
+    if (!same_file) {
+      if (CanIgnoreCurrentASTNode())
+        return true;
+      if (!directly_included.empty()) {
+        for (const NamedDecl* decl : directly_included)
+          ReportDeclUse(CurrentLoc(), decl);
+        // No AddProcessedOverloadLoc here: PublicHeaderIntendsToProvide should
+        // already work well at the instantiation site.
+      } else if (!expr->requiresADL()) {
+        // Report any of the decls so as to keep the code compilable. If ADL is
+        // to be applied (i.e. the function name is unqualified), it is allowed
+        // to have no declaration.
+        ReportDeclUse(CurrentLoc(), first_decl);
+        // No AddProcessedOverloadLoc here: even first_decl may be different
+        // when scanning different translation units. It's better to
+        // double-report it on template-defn and instantiation sites than not
+        // to report an actually used decl at all.
+      }
+      return true;
+    }
     // For now, we're only worried about function calls.
     // TODO(csilvers): are there other kinds of overloads we need to check?
     const FunctionDecl* arbitrary_fn_decl = nullptr;
-    for (OverloadExpr::decls_iterator it = expr->decls_begin();
-         it != expr->decls_end(); ++it) {
-      const NamedDecl* decl = *it;
+    for (const NamedDecl* decl : expr->decls()) {
       // Sometimes a UsingShadowDecl comes between us and the 'real' decl.
       if (const UsingShadowDecl* using_shadow_decl = DynCastFrom(decl))
         decl = using_shadow_decl->getTargetDecl();
@@ -2272,7 +2300,7 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
   // like a placement-new, we handle it at template-writing time
   // anyway.
   bool VisitCXXNewExpr(CXXNewExpr* expr) {
-    // Like in VisitOverloadExpr(), we update processed_overload_locs
+    // Like in VisitUnresolvedLookupExpr(), we update processed_overload_locs
     // regardless of the value of CanIgnoreCurrentASTNode().
 
     // We say it's placement-new if it has a single placement-arg, which _might_
@@ -2292,7 +2320,7 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
          GetTypeOf(placement_expr)->isArrayType() ||
          IsAddressOf(placement_expr) ||
          IsDependentNameCall(placement_expr))) {
-      // Treat this like an OverloadExpr.
+      // Treat this like an UnresolvedLookupExpr.
       AddProcessedOverloadLoc(CurrentLoc());
       VERRS(7) << "Adding to processed_overload_locs (placement-new): "
                << PrintableCurrentLoc() << "\n";
@@ -2359,7 +2387,7 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
       HandleFnReturnOnCallSite(callee);
 
     // We may have already been checked in a previous
-    // VisitOverloadExpr() call.  Don't check again in that case.
+    // VisitUnresolvedLookupExpr() call.  Don't check again in that case.
     if (IsProcessedOverloadLoc(CurrentLoc()))
       return true;
 
