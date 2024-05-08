@@ -181,6 +181,7 @@ const IncludeMapEntry libc_symbol_map[] = {
   { "useconds_t", kPrivate, "<sys/types.h>", kPublic },
   { "wchar_t", kPrivate, "<stddef.h>", kPublic },
   { "wchar_t", kPrivate, "<stdlib.h>", kPublic },
+  { "wint_t", kPrivate, "<wchar.h>", kPublic },
   // It is unspecified if the cname headers provide ::size_t.
   // <locale.h> is the one header which defines NULL but not size_t.
   { "size_t", kPrivate, "<stddef.h>", kPublic },  // 'canonical' location for size_t
@@ -206,9 +207,13 @@ const IncludeMapEntry libc_symbol_map[] = {
   { "MAXHOSTNAMELEN", kPrivate, "<protocols/timed.h>", kPublic },
   { "SIGABRT", kPrivate, "<signal.h>", kPublic },
   { "SIGCHLD", kPrivate, "<signal.h>", kPublic },
+  { "va_arg", kPrivate, "<stdarg.h>", kPublic },
+  { "va_copy", kPrivate, "<stdarg.h>", kPublic },
+  { "va_end", kPrivate, "<stdarg.h>", kPublic },
   { "va_list", kPrivate, "<stdarg.h>", kPublic },
   { "va_list", kPrivate, "<stdio.h>", kPublic },
   { "va_list", kPrivate, "<wchar.h>", kPublic },
+  { "va_start", kPrivate, "<stdarg.h>", kPublic },
   // These are symbols that could be defined in either stdlib.h or
   // malloc.h, but we always want the stdlib location.
   { "malloc", kPrivate, "<stdlib.h>", kPublic },
@@ -347,6 +352,7 @@ const IncludeMapEntry libc_include_map[] = {
   { "<bits/sigcontext.h>", kPrivate, "<signal.h>", kPublic },
   { "<bits/siginfo.h>", kPrivate, "<signal.h>", kPublic },
   { "<bits/signum.h>", kPrivate, "<signal.h>", kPublic },
+  { "<bits/signum-arch.h>", kPrivate, "<signal.h>", kPublic },
   { "<bits/sigset.h>", kPrivate, "<signal.h>", kPublic },
   { "<bits/sigstack.h>", kPrivate, "<signal.h>", kPublic },
   { "<bits/sigthread.h>", kPrivate, "<signal.h>", kPublic },
