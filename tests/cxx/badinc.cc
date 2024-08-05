@@ -193,6 +193,9 @@ typedef I1_Class Cc_typedef_array[kI1ConstInt];
 typedef I1_TemplateClass<I1_TemplateClass<I1_Class,I2_Class> > Cc_tpl_typedef;
 // TODO(csilvers): it would be nice to be able to take this line out and
 // still have the above tests pass:
+// TODO(bolshakov): figure out how to determine at the use site that a typedef
+// provides not only the types but also the member functions.
+// IWYU: I2_Class::~I2_Class is...*badinc-i2-inl.h
 Cc_tpl_typedef cc_tpl_typedef;
 // IWYU: I2_Class is...*badinc-i2.h
 // IWYU: I2_Class::I2_Class is...*badinc-i2-inl.h
@@ -1056,10 +1059,6 @@ int main() {
   // IWYU: I1_PtrDereferenceClass needs a declaration
   I1_PtrDereferenceClass* local_i1_ptrdereference_class = 0;
   int x;
-  // va_list is normally in <stdarg.h>, but we already have <stdio.h>
-  // available, so mappings will source it from there.
-  // IWYU: va_list is...*<stdio.h>
-  va_list vl;
   D1_I1_Typedef d1_i1_typedef;
   // IWYU: i1_int is...*badinc-i1.h
   int vararray[i1_int];
