@@ -230,6 +230,7 @@ using clang::Preprocessor;
 using clang::QualType;
 using clang::QualifiedTypeLoc;
 using clang::RecordDecl;
+using clang::RecordType;
 using clang::RecursiveASTVisitor;
 using clang::ReferenceType;
 using clang::Sema;
@@ -609,9 +610,8 @@ class BaseAstVisitor : public RecursiveASTVisitor<Derived> {
       member_types.insert(it->getType().getTypePtr());
     }
     for (const Type* type : member_types) {
-      const NamedDecl* member_decl = TypeToDeclAsWritten(type);
       // We only want those fields that are c++ classes.
-      if (const CXXRecordDecl* cxx_field_decl = DynCastFrom(member_decl)) {
+      if (const CXXRecordDecl* cxx_field_decl = type->getAsCXXRecordDecl()) {
         if (const CXXDestructorDecl* field_dtor =
                 cxx_field_decl->getDestructor()) {
           if (!this->getDerived().TraverseImplicitDestructorCall(
@@ -2602,10 +2602,9 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
               dyn_cast<TemplateSpecializationType>(component)) {
         const NamedDecl* decl = TypeToDeclAsWritten(tpl_spec_type);
         if (const auto* al_tpl_decl = dyn_cast<TypeAliasTemplateDecl>(decl)) {
-          const TypeAliasDecl* al_decl = al_tpl_decl->getTemplatedDecl();
-          InsertAllInto(GetProvidedTypes(tpl_spec_type->desugar().getTypePtr(),
-                                         GetLocation(al_decl)),
-                        &retval);
+          InsertAllInto(
+              GetAliasTemplateProvidedTypes(tpl_spec_type, al_tpl_decl),
+              &retval);
           continue;
         }
       }
@@ -2652,6 +2651,16 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
   // be reported.
   bool SourceOrTargetTypeIsProvided(const ASTNode* construct_expr_node) const =
       delete;
+
+  set<const Type*> GetAliasTemplateProvidedTypes(
+      const TemplateSpecializationType* type,
+      const TypeAliasTemplateDecl* al_tpl_decl) const {
+    const TypeAliasDecl* al_decl = al_tpl_decl->getTemplatedDecl();
+    set<const Type*> res = GetProvidedTypes(type->getAliasedType().getTypePtr(),
+                                            GetLocation(al_decl));
+    RemoveAllFrom(GetCanonicalArgComponents(type), &res);
+    return res;
+  }
 
   void ReportTypeUseInternal(SourceLocation used_loc, const Type* type,
                              set<const Type*> blocked_types,
@@ -2729,10 +2738,10 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
       if (template_spec_type->isTypeAlias()) {
         const NamedDecl* decl = TypeToDeclAsWritten(template_spec_type);
         if (const auto* al_tpl_decl = dyn_cast<TypeAliasTemplateDecl>(decl)) {
-          const TypeAliasDecl* al_decl = al_tpl_decl->getTemplatedDecl();
+          InsertAllInto(
+              GetAliasTemplateProvidedTypes(template_spec_type, al_tpl_decl),
+              &blocked_types);
           const Type* type = template_spec_type->getAliasedType().getTypePtr();
-          InsertAllInto(GetProvidedTypes(type, GetLocation(al_decl)),
-                        &blocked_types);
           ReportTypeUseInternal(used_loc, type, blocked_types, deref_kind);
         }
         return;
@@ -3243,8 +3252,7 @@ class InstantiatedTemplateVisitor
         VERRS(6) << "Recursively traversing " << PrintableDecl(cts_decl)
                  << " which was full-used and does not involve a known"
                  << " template param\n";
-        TraverseCXXRecordDecl(
-            const_cast<ClassTemplateSpecializationDecl*>(cts_decl));
+        TraverseDataAndTypeMembersOfClassHelper(cts_decl);
       }
     }
   }
@@ -3260,6 +3268,22 @@ class InstantiatedTemplateVisitor
     AnalyzeTemplateTypeParmUse(type);
 
     return Base::VisitSubstTemplateTypeParmType(type);
+  }
+
+  bool VisitRecordType(RecordType* type) {
+    if (CanIgnoreCurrentASTNode() || CanIgnoreType(type))
+      return true;
+
+    // CanForwardDeclareType function relies on the specific placement of
+    // the type node in the AST. An intermediate SubstTemplateTypeParmType could
+    // break that logic. However, such cases don't even need to be considered
+    // here, because they are handled in VisitSubstTemplateTypeParmType. But
+    // maybe using HasAncestorOfType, or replacing VisitSubst...Type with
+    // TraverseSubst...Type and Traverse...TypeLoc would be more reliable.
+    if (!current_ast_node()->ParentIsA<SubstTemplateTypeParmType>())
+      AnalyzeTemplateTypeParmUse(type);
+
+    return Base::VisitRecordType(type);
   }
 
   bool VisitTemplateSpecializationType(TemplateSpecializationType* type) {
