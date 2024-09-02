@@ -510,7 +510,7 @@ const IncludeMapEntry stdlib_c_include_map[] = {
   // These headers are defined in [headers.cpp.c].
   // https://github.com/cplusplus/draft/blob/c+%2B20/source/lib-intro.tex
   //
-  // $ curl -s -N https://raw.githubusercontent.com/cplusplus/draft/c%2B%2B20/source/lib-intro.tex | sed -n '/begin{multicolfloattable}.*{headers.cpp.c}/,/end{multicolfloattable}/p' lib-intro.tex | grep tcode | perl -nle 'm/tcode{<c(.*)>}/ && print qq@  { "<$1.h>", kPublic, "<c$1>", kPublic },@' | sort
+  // $ curl -s -N https://raw.githubusercontent.com/cplusplus/draft/c%2B%2B20/source/lib-intro.tex | sed -n '/begin{multicolfloattable}.*{headers.cpp.c}/,/end{multicolfloattable}/p' | grep tcode | perl -nle 'm/tcode{<c(.*)>}/ && print qq@  { "<$1.h>", kPublic, "<c$1>", kPublic },@' | sort
   { "<assert.h>", kPublic, "<cassert>", kPublic },
   { "<complex.h>", kPublic, "<ccomplex>", kPublic },
   { "<ctype.h>", kPublic, "<cctype>", kPublic },
@@ -543,7 +543,7 @@ const char* stdlib_cpp_public_headers[] = {
   // These headers are defined in [headers.cpp].
   // https://github.com/cplusplus/draft/blob/c+%2B20/source/lib-intro.tex
   //
-  // $ curl -s -N https://raw.githubusercontent.com/cplusplus/draft/c%2B%2B20/source/lib-intro.tex | sed -n '/begin{multicolfloattable}.*{headers.cpp}/,/end{multicolfloattable}/p' lib-intro.tex | grep tcode | perl -nle 'm/tcode{(.*)}/ && print qq@  "$1",@' | sort
+  // $ curl -s -N https://raw.githubusercontent.com/cplusplus/draft/c%2B%2B23-wip/source/lib-intro.tex | sed -n '/begin{multicolfloattable}.*{headers.cpp}/,/end{multicolfloattable}/p' | grep tcode | perl -nle 'm/tcode{(.*)}/ && print qq@  "$1",@' | sort
   "<algorithm>",
   "<any>",
   "<array>",
@@ -562,12 +562,16 @@ const char* stdlib_cpp_public_headers[] = {
   "<deque>",
   "<exception>",
   "<execution>",
+  "<expected>",
   "<filesystem>",
+  "<flat_map>",
+  "<flat_set>",
   "<format>",
   "<forward_list>",
   "<fstream>",
   "<functional>",
   "<future>",
+  "<generator>",
   "<initializer_list>",
   "<iomanip>",
   "<ios>",
@@ -580,6 +584,7 @@ const char* stdlib_cpp_public_headers[] = {
   "<list>",
   "<locale>",
   "<map>",
+  "<mdspan>",
   "<memory>",
   "<memory_resource>",
   "<mutex>",
@@ -588,6 +593,7 @@ const char* stdlib_cpp_public_headers[] = {
   "<numeric>",
   "<optional>",
   "<ostream>",
+  "<print>",
   "<queue>",
   "<random>",
   "<ranges>",
@@ -599,9 +605,12 @@ const char* stdlib_cpp_public_headers[] = {
   "<shared_mutex>",
   "<source_location>",
   "<span>",
+  "<spanstream>",
   "<sstream>",
   "<stack>",
+  "<stacktrace>",
   "<stdexcept>",
+  "<stdfloat>",
   "<stop_token>",
   "<streambuf>",
   "<string>",
