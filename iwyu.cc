@@ -175,6 +175,7 @@ using clang::ASTConsumer;
 using clang::ASTContext;
 using clang::ASTFrontendAction;
 using clang::ArraySubscriptExpr;
+using clang::ArrayType;
 using clang::Attr;
 using clang::BinaryOperator;
 using clang::CXXBaseSpecifier;
@@ -225,6 +226,7 @@ using clang::NestedNameSpecifier;
 using clang::NestedNameSpecifierLoc;
 using clang::OptionalFileEntryRef;
 using clang::PPCallbacks;
+using clang::ParenType;
 using clang::ParmVarDecl;
 using clang::PointerType;
 using clang::Preprocessor;
@@ -2104,7 +2106,7 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
       return true;
 
     if (const Expr* owner_expr = GetFirstClassArgument(expr)) {
-      const Type* owner_type = GetTypeOf(owner_expr);
+      const Type* owner_type = GetTypeOf(owner_expr->IgnoreParenImpCasts());
       // Note we report the type use is the location of owner_expr
       // (the 'a' in 'a << b' or the 'MACRO' in 'MACRO << b'), rather
       // than our location (which is the '<<').  That way, we properly
@@ -2565,6 +2567,9 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
     // Read past elaborations like 'class' keyword or namespaces.
     ast_node = MostElaboratedAncestor(ast_node);
 
+    while (ast_node->ParentIsA<ArrayType>() || ast_node->ParentIsA<ParenType>())
+      ast_node = ast_node->parent();
+
     // Now there are two options: either we are part of a type or we are part of
     // a declaration involving a type.
     const Type* parent_type = ast_node->GetParentAs<Type>();
@@ -2762,6 +2767,11 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
         }
         return;
       }
+    }
+
+    if (const auto* array_type = dyn_cast<ArrayType>(type)) {
+      const Type* elem = array_type->getElementType().getTypePtr();
+      return ReportTypeUseInternal(used_loc, elem, blocked_types, deref_kind);
     }
 
     // Map private types like __normal_iterator to their public counterpart.
