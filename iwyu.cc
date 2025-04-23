@@ -1430,7 +1430,10 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
     // Check if the author forward-declared the class in the same file.
     bool found_earlier_forward_declare_in_same_file = false;
     for (const NamedDecl* redecl : redecls) {
-      if (IsBeforeInSameFile(redecl, use_loc)) {
+      // In case of something like "typedef struct Manager Manager", the
+      // redeclaration and the type will have the same location.
+      if (GetLocation(redecl) == use_loc ||
+          IsBeforeInSameFile(redecl, use_loc)) {
         found_earlier_forward_declare_in_same_file = true;
         break;
       }
@@ -2201,6 +2204,15 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
         }
         return true;
       }
+      case TypeTrait::BTT_IsLayoutCompatible:
+        // C++20 [basic.types.general]p.11: two types cv1 T1 and cv2 T2 are
+        // layout-compatible types if T1 and T2 are the same type,
+        // layout-compatible enumerations, or layout-compatible standard-layout
+        // class types.
+        // No need to analyse pointers or references.
+        // TODO(bolshakov): require complete argument types here when
+        // CanForwardDeclareType stops doing it.
+        return true;
       default:
         for (const TypeSourceInfo* arg : expr->getArgs()) {
           QualType qual_type = arg->getType();

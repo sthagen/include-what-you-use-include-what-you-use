@@ -141,6 +141,24 @@ static_assert(__is_nothrow_convertible(DerivedRefNonProviding,
 static_assert(__is_convertible(DerivedRefProviding, ClassConstRefProviding));
 static_assert(__is_nothrow_convertible(DerivedRefProviding,
                                        ClassConstRefProviding));
+// IWYU: Base needs a declaration
+// IWYU: Derived needs a declaration
+// IWYU: Derived is...*-i2.h
+static_assert(__is_convertible(Derived&, Base&));
+// IWYU: Base needs a declaration
+// IWYU: Derived needs a declaration
+// IWYU: Derived is...*-i2.h
+static_assert(__is_nothrow_convertible(Derived&, Base&));
+// IWYU: Derived is...*-i2.h
+// IWYU: Base needs a declaration
+static_assert(__is_convertible(DerivedRefNonProviding, Base&));
+// IWYU: Derived is...*-i2.h
+// IWYU: Base needs a declaration
+static_assert(__is_nothrow_convertible(DerivedRefNonProviding, Base&));
+// IWYU: Base needs a declaration
+static_assert(__is_convertible(DerivedRefProviding, Base&));
+// IWYU: Base needs a declaration
+static_assert(__is_nothrow_convertible(DerivedRefProviding, Base&));
 // IWYU: Derived is...*-i2.h
 static_assert(__is_convertible(DerivedPtrRefNonProviding,
                                ClassConstRefProviding));
@@ -275,6 +293,16 @@ static_assert(__is_nothrow_convertible(DerivedPtrRefNonProviding, Base*));
 static_assert(__is_convertible(DerivedPtrRefProviding, Base*));
 // IWYU: Base needs a declaration
 static_assert(__is_nothrow_convertible(DerivedPtrRefProviding, Base*));
+// IWYU: Derived is...*-i2.h
+// IWYU: Base needs a declaration
+static_assert(__is_convertible(DerivedPtrNonProviding, Base*));
+// IWYU: Derived is...*-i2.h
+// IWYU: Base needs a declaration
+static_assert(__is_nothrow_convertible(DerivedPtrNonProviding, Base*));
+// IWYU: Base needs a declaration
+static_assert(__is_convertible(DerivedPtrProviding, Base*));
+// IWYU: Base needs a declaration
+static_assert(__is_nothrow_convertible(DerivedPtrProviding, Base*));
 // IWYU: Derived needs a declaration
 // IWYU: Derived is...*-i2.h
 // IWYU: Base needs a declaration
@@ -756,6 +784,38 @@ static_assert(!__is_nothrow_assignable(DerivedMemPtr<int (*)()>&,
 // TODO: handle other types in an implicit conversion chain like Derived in
 // __is_assignable(Base*&, Class&) when Class has operator Derived*().
 
+// Types for is_layout_compatible trait should be complete types, cv void,
+// or arrays of unknown bound (C++20 [meta.rel]).
+// IWYU: Class is...*-i1.h
+static_assert(!__is_layout_compatible(Class, int));
+// IWYU: Class is...*-i1.h
+static_assert(!__is_layout_compatible(int, Class));
+// IWYU: Class is...*-i1.h
+static_assert(!__is_layout_compatible(const Class, int));
+// IWYU: Class is...*-i1.h
+static_assert(!__is_layout_compatible(int, volatile Class));
+// IWYU: Class is...*-i1.h
+static_assert(!__is_layout_compatible(Class, void));
+// IWYU: Class is...*-i1.h
+static_assert(!__is_layout_compatible(void, Class));
+// IWYU: Class is...*-i1.h
+static_assert(__is_layout_compatible(Class, Class));
+// IWYU: Class is...*-i1.h
+static_assert(!__is_layout_compatible(Class[5], int));
+// IWYU: Class is...*-i1.h
+static_assert(!__is_layout_compatible(int, Class[5]));
+// TODO: no need of full type for arrays of unknown bound.
+// IWYU: Class is...*-i1.h
+static_assert(!__is_layout_compatible(Class[], int));
+// IWYU: Class is...*-i1.h
+static_assert(!__is_layout_compatible(int, Class[]));
+static_assert(__is_layout_compatible(Class*, Class*));
+static_assert(__is_layout_compatible(Class&, Class&));
+static_assert(!__is_layout_compatible(Class*, Class&));
+static_assert(!__is_layout_compatible(Class&, Class*));
+static_assert(!__is_layout_compatible(Class*, Struct*));
+static_assert(!__is_layout_compatible(Class&, Struct&));
+
 /**** IWYU_SUMMARY
 
 tests/cxx/type_trait.cc should add these lines:
@@ -770,8 +830,8 @@ tests/cxx/type_trait.cc should remove these lines:
 - union Union2;  // lines XX-XX
 
 The full include-list for tests/cxx/type_trait.cc:
-#include "tests/cxx/type_trait-d1.h"  // for ClassConstRefProviding, ClassRefProviding, DerivedPtrRefProviding, DerivedRefProviding, Union1RefProviding
-#include "tests/cxx/type_trait-d2.h"  // for BaseMemPtr, ClassConstRefNonProviding, ClassNonProviding, ClassRefNonProviding, DerivedMemPtr, DerivedPtrRefNonProviding, DerivedRefNonProviding, Union1PtrRefNonProviding, Union1RefNonProviding, UnionMemPtr
+#include "tests/cxx/type_trait-d1.h"  // for ClassConstRefProviding, ClassRefProviding, DerivedPtrProviding, DerivedPtrRefProviding, DerivedRefProviding, Union1RefProviding
+#include "tests/cxx/type_trait-d2.h"  // for BaseMemPtr, ClassConstRefNonProviding, ClassNonProviding, ClassRefNonProviding, DerivedMemPtr, DerivedPtrNonProviding, DerivedPtrRefNonProviding, DerivedRefNonProviding, Union1PtrRefNonProviding, Union1RefNonProviding, UnionMemPtr
 #include "tests/cxx/type_trait-i1.h"  // for Base, Class, Struct, StructDerivedClass, Union1, Union2
 #include "tests/cxx/type_trait-i2.h"  // for Derived
 
