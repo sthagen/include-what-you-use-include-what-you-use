@@ -56,6 +56,7 @@
 // IWYU pragma: no_include "clang/AST/StmtIterator.h"
 // IWYU pragma: no_include "clang/Basic/CustomizableOptional.h"
 
+using clang::ASTContext;
 using clang::ASTDumper;
 using clang::ArrayType;
 using clang::BlockPointerType;
@@ -1544,9 +1545,9 @@ const NamedDecl* TypeToDeclForContent(const Type* type) {
   return TypeToDeclImpl(type, /*as_written=*/false);
 }
 
-const Type* RemoveReference(const Type* type) {
+QualType RemoveReference(QualType type) {
   if (const auto* ref_type = type->getAs<ReferenceType>())
-    return ref_type->getPointeeType().getTypePtr();
+    return ref_type->getPointeeType();
   return type;
 }
 
@@ -1709,19 +1710,30 @@ bool RefCanBindToTemp(const Type* type) {
          !referred_type.isVolatileQualified();
 }
 
-bool IsDerivedToBasePtrConvertible(const Type* derived_ptr_type,
-                                   const Type* base_ptr_type) {
-  if (!derived_ptr_type->isPointerType() || !base_ptr_type->isPointerType())
+bool IsDerivedToBasePtrConvertible(QualType derived_ptr_type,
+                                   QualType base_ptr_type) {
+  if (!base_ptr_type->isPointerType())
     return false;
-
-  const QualType derived = derived_ptr_type->getPointeeType();
   const QualType base = base_ptr_type->getPointeeType();
+  const CXXRecordDecl* base_decl = base->getAsCXXRecordDecl();
+  if (!base_decl)
+    return false;
+  const ASTContext& context = base_decl->getASTContext();
+
+  QualType derived;
+  if (derived_ptr_type->isPointerType()) {
+    derived = derived_ptr_type->getPointeeType();
+  } else if (const ArrayType* array =
+                 context.getAsArrayType(derived_ptr_type)) {
+    derived = array->getElementType();
+  } else {
+    return false;
+  }
+
   if (const CXXRecordDecl* derived_decl = derived->getAsCXXRecordDecl()) {
-    if (const CXXRecordDecl* base_decl = base->getAsCXXRecordDecl()) {
-      if (!derived_decl->isDerivedFrom(base_decl))
-        return false;
-      return base.isAtLeastAsQualifiedAs(derived, base_decl->getASTContext());
-    }
+    if (!derived_decl->isDerivedFrom(base_decl))
+      return false;
+    return base.isAtLeastAsQualifiedAs(derived, context);
   }
   return false;
 }
