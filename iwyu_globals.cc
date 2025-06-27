@@ -82,7 +82,8 @@ static void PrintHelp(const char* extra_msg) {
          "        This flag may be specified multiple times to specify\n"
          "        multiple glob patterns.\n"
          "   --mapping_file=<filename>: gives iwyu a mapping file.\n"
-         "   --no_default_mappings: do not add iwyu's default mappings.\n"
+         "   --no_internal_mappings: do not add iwyu's internal mappings.\n"
+         "   --export_mappings=<dirpath>: writes out all internal mappings.\n"
          "   --pch_in_code: mark the first include in a translation unit as a\n"
          "        precompiled header.  Use --pch_in_code to prevent IWYU from\n"
          "        removing necessary PCH includes.  Though Clang forces PCHs\n"
@@ -208,7 +209,7 @@ OptionsParser::~OptionsParser() {
 CommandlineFlags::CommandlineFlags()
     : transitive_includes_only(false),
       verbose(getenv("IWYU_VERBOSE") ? atoi(getenv("IWYU_VERBOSE")) : 1),
-      no_default_mappings(false),
+      no_internal_mappings(false),
       max_line_length(80),
       prefix_header_include_policy(CommandlineFlags::kAdd),
       pch_in_code(false),
@@ -232,7 +233,8 @@ int CommandlineFlags::ParseArgv(int argc, char** argv) {
     {"transitive_includes_only", no_argument, nullptr, 't'},
     {"verbose", required_argument, nullptr, 'v'},
     {"mapping_file", required_argument, nullptr, 'm'},
-    {"no_default_mappings", no_argument, nullptr, 'n'},
+    {"no_internal_mappings", no_argument, nullptr, 'n'},
+    {"no_default_mappings", no_argument, nullptr, 'n'},  // deprecated
     {"prefix_header_includes", required_argument, nullptr, 'x'},
     {"pch_in_code", no_argument, nullptr, 'h'},
     {"max_line_length", required_argument, nullptr, 'l'},
@@ -247,6 +249,7 @@ int CommandlineFlags::ParseArgv(int argc, char** argv) {
     {"debug", required_argument, nullptr, 'd'},
     {"regex", required_argument, nullptr, 'r'},
     {"experimental", required_argument, nullptr, 'p'},
+    {"export_mappings", required_argument, nullptr, 'E'},
     {nullptr, 0, nullptr, 0}
   };
   static const char shortopts[] = "v:c:m:d:nr";
@@ -257,7 +260,9 @@ int CommandlineFlags::ParseArgv(int argc, char** argv) {
       case 't': transitive_includes_only = true; break;
       case 'v': verbose = atoi(optarg); break;
       case 'm': mapping_files.push_back(optarg); break;
-      case 'n': no_default_mappings = true; break;
+      case 'n':
+        no_internal_mappings = true;
+        break;
       case 'o': no_comments = true; break;
       case 'u': update_comments = true; break;
       case 'i':
@@ -336,6 +341,15 @@ int CommandlineFlags::ParseArgv(int argc, char** argv) {
         for (const string& f : exp_flags) {
           llvm::errs() << "Experimental flag enabled: '" << f << "'\n";
         }
+        break;
+      }
+      case 'E': {
+        // Handle --export_mappings immediately. We already depend on
+        // iwyu_include_picker here, and we want to run the export before the
+        // Clang/IWYU driver starts making demands for required inputs, etc.
+        string output_dirpath(optarg);
+        ExportInternalMappings(output_dirpath);
+        exit(EXIT_SUCCESS);
         break;
       }
       case -1:
@@ -443,7 +457,7 @@ static vector<HeaderSearchPath> ComputeHeaderSearchPaths(
 }
 
 static CStdLib DeriveCStdLib() {
-  if (GlobalFlags().no_default_mappings)
+  if (GlobalFlags().no_internal_mappings)
     return CStdLib::None;
   if (GlobalFlags().HasExperimentalFlag("clang_mappings"))
     return CStdLib::ClangSymbols;
@@ -452,7 +466,7 @@ static CStdLib DeriveCStdLib() {
 
 static CXXStdLib DeriveCXXStdLib(const CompilerInstance& compiler,
                                  const ToolChain& toolchain) {
-  if (GlobalFlags().no_default_mappings || !compiler.getLangOpts().CPlusPlus)
+  if (GlobalFlags().no_internal_mappings || !compiler.getLangOpts().CPlusPlus)
     return CXXStdLib::None;
   if (GlobalFlags().HasExperimentalFlag("clang_mappings"))
     return CXXStdLib::ClangSymbols;
@@ -575,7 +589,7 @@ void InitGlobalsAndFlagsForTesting() {
   data_getter = nullptr;
   CStdLib cstdlib = CStdLib::Glibc;
   CXXStdLib cxxstdlib = CXXStdLib::Libstdcxx;
-  if (GlobalFlags().no_default_mappings) {
+  if (GlobalFlags().no_internal_mappings) {
     cstdlib = CStdLib::None;
     cxxstdlib = CXXStdLib::None;
   } else if (GlobalFlags().HasExperimentalFlag("clang_mappings")) {

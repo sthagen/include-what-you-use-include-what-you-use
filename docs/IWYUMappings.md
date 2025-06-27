@@ -16,7 +16,7 @@ header pulls in `NULL` one way or another, and we probably shouldn't force
 people to `#include <cstddef>`.
 
 To simplify IWYU deployment and command-line interface, many of these mappings
-are compiled into the executable. These constitute the *default mappings*.
+are compiled into the executable. These constitute the *internal mappings*.
 
 However, many mappings are toolchain- and version-dependent. Symbol homes and
 `#include` dependencies change between releases of GCC and are dramatically
@@ -24,15 +24,15 @@ different for the standard libraries shipped with Microsoft Visual C++. Also,
 mappings such as these are usually necessary for third-party libraries
 (e.g. Boost, Qt) or even project-local symbols and headers as well.
 
-Any mappings outside of the default set can therefore be specified as external
-*mapping files*.
+Any mappings outside of the default internal set can therefore be specified as
+external *mapping files*.
 
 
-## Default mappings ##
+## Internal mappings ##
 
-IWYU's default mappings are hard-coded in `iwyu_include_picker.cc`, and are very
-GCC-centric. There are both symbol- and include mappings for GNU libstdc++ and
-libc.
+IWYU's internal mappings are hard-coded in `iwyu_include_picker.cc`, and are
+very GCC-centric. There are both symbol- and include mappings for GNU libstdc++
+and libc.
 
 
 ## Mapping files ##
@@ -168,11 +168,34 @@ current directory.
 `ref` directives are first looked up relative to the current directory and if
 not found, relative to the referring mapping file.
 
-The default mappings can be turned off (e.g. for baremetal projects like an OS
-kernel) using the `--no_default_mappings` switch:
+The internal mappings can be turned off (e.g. for baremetal projects like an OS
+kernel) using the `--no_internal_mappings` switch:
 
-    $ include-what-you-use -Xiwyu --no_default_mappings \
+    $ include-what-you-use -Xiwyu --no_internal_mappings \
         --mapping_file=kernel_libc.imp kernel/main.c
+
+We used to ship `.imp` files to mirror IWYU's internal mappings to allow use of
+`--no_internal_mappings` combined with edited internal mappings to let users
+customize IWYU's default behavior for their environment. We no longer do, but
+the internal mappings can now be exported from IWYU using:
+
+    $ include-what-you-use -Xiwyu --export_mappings=./mappings
+
+The generated `.imp` files are named directly after the symbols in
+`iwyu_include_picker.cc`, so it should be straightforward to correlate and
+adjust what needs to be changed. The internal mappings can then be replaced by
+the customized ones using something like:
+
+    $ include-what-you-use \
+        -Xiwyu --no_internal_mappings \
+        -Xiwyu --mapping_file=./mappings/libc_include_map.imp \
+        -Xiwyu --mapping_file=./mappings/libc_symbol_map.imp \
+        ... \
+        myprogram.c
+
+Note that the mapping export doesn't care about compilation mode or target
+information, but rather just dumps out all mapping declarations, so you may need
+to construct per-target subsets manually when using them explicitly.
 
 
 ## Generating mapping files ##
@@ -188,23 +211,15 @@ internal mappings for GNU libstdc++ shipped with IWYU. The procedure for
 refreshing internal mappings is:
 
 ```
-$ mapgen/iwyu-mapgen-libstdcxx.py --lang=imp \
-    /usr/include/c++/11 \
-    /usr/include/x86_64-linux-gnu/c++/11 \
-    > gcc.stl.headers.imp
-
 $ mapgen/iwyu-mapgen-libstdcxx.py --lang=c++ \
     /usr/include/c++/11 \
     /usr/include/x86_64-linux-gnu/c++/11 \
     > libstdcxx_11.cc
 ```
 
-The external mappings can be generated straight into the `gcc.stl.headers.imp`
-file.
-
-The internal C++ mappings, however, are generated into a temporary file
-`libstdcxx_11.cc`, and can then be pasted into `iwyu_include_picker.cc` to
-replace the `libstdcpp_include_map` table.
+The C++ mappings declarations are generated into a temporary file,
+`libstdcxx_11.cc`, and can be copy/pasted from there into
+`iwyu_include_picker.cc` to replace the `libstdcpp_include_map` table.
 
 There are two placeholders above:
 

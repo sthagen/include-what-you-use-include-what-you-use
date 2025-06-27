@@ -72,6 +72,9 @@ enum IncludeVisibility { kUnusedVisibility, kPublic, kPrivate };
 enum class CStdLib { None, ClangSymbols, Glibc };
 enum class CXXStdLib { None, ClangSymbols, Libstdcxx, Libcxx };
 
+// Write out all internal mappings to files in dirpath.
+void ExportInternalMappings(const string& dirpath);
+
 // When a symbol or file is mapped to an include, that include is represented
 // by this struct.  It always has a quoted_include and may also have a path
 // (depending on its origin).
@@ -200,8 +203,8 @@ class IncludePicker {
   void AddMappingsFromFile(const string& filename,
                            const vector<string>& search_path);
 
-  // Adds all hard-coded default mappings.
-  void AddDefaultMappings(CStdLib cstdlib, CXXStdLib cxxstdlib);
+  // Adds all hard-coded internal mappings.
+  void AddInternalMappings(CStdLib cstdlib, CXXStdLib cxxstdlib);
 
   // Adds a mapping from a one header to another, typically
   // from a private to a public quoted include.
