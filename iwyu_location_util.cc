@@ -15,7 +15,7 @@
 #include "clang/AST/DeclTemplate.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/ExprCXX.h"
-#include "clang/AST/NestedNameSpecifier.h"
+#include "clang/AST/NestedNameSpecifierBase.h"
 #include "clang/AST/Stmt.h"
 #include "clang/AST/TemplateBase.h"
 #include "clang/AST/TypeLoc.h"
@@ -171,7 +171,14 @@ SourceLocation GetLocation(const Stmt* stmt) {
 SourceLocation GetLocation(const TypeLoc* typeloc) {
   if (typeloc == nullptr)
     return SourceLocation();
-  return typeloc->getBeginLoc();
+  // Using getNonElaboratedBeginLoc instead of getBeginLoc is a little quirk
+  // to support correct determination that the introduced Struct declaration
+  // is not located after the 'struct Struct' type which introduces it in code
+  // like this:
+  // typedef struct Struct Typedef;
+  // This is needed for the IWYU type provision logic so that it considers
+  // the introduced declaration as a fwd-declaration for the type under typedef.
+  return typeloc->getNonElaboratedBeginLoc();
 }
 
 SourceLocation GetLocation(const NestedNameSpecifierLoc* nnsloc) {
@@ -190,14 +197,12 @@ bool IsInScratchSpace(SourceLocation loc) {
   return StartsWith(PrintableLoc(GetSpellingLoc(loc)), "<scratch space>");
 }
 
-bool IsInHeader(const Decl* decl) {
-  OptionalFileEntryRef containing_file = GetFileEntry(decl);
-  if (!containing_file) {
-    // This is a builtin, or something is terribly wrong.
-    // At any rate, we're not in a header.
+bool IsHeaderFile(OptionalFileEntryRef file) {
+  if (!file) {
+    // Not sure what's going on, but we're not in a header.
     return false;
   }
-  return !GlobalSourceManager()->isMainFile(containing_file->getFileEntry());
+  return !GlobalSourceManager()->isMainFile(file->getFileEntry());
 }
 
 bool IsSystemHeader(OptionalFileEntryRef file) {

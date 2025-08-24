@@ -7,4 +7,5 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "tests/c/enum-indirect.h"
+#include "tests/c/enum-i1.h"
+#include "tests/c/enum-i2.h"

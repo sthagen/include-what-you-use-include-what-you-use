@@ -1,4 +1,4 @@
-//===--- no_implicit_sugar_report_cxx11-direct.h - test input -------------===//
+//===--- enum-i1.h - test input file for iwyu -----------------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,10 +7,4 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "tests/cxx/no_implicit_sugar_report_cxx11-indirect.h"
-
-TypedefHost::Int GetInt();
-
-class Class {};
-
-ns::Class GetClassFromUsing();
+enum Enum { A, B, C };

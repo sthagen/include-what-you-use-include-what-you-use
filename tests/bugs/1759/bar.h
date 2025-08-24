@@ -1,4 +1,4 @@
-//===--- no_implicit_sugar_report_cxx11-direct.h - test input -------------===//
+//===--- bar.h - iwyu test ------------------------------------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,10 +7,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "tests/cxx/no_implicit_sugar_report_cxx11-indirect.h"
+#include "foo.h"
 
-TypedefHost::Int GetInt();
-
-class Class {};
-
-ns::Class GetClassFromUsing();
+Foo getFoo();
