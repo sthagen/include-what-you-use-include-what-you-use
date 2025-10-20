@@ -8,3 +8,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "tests/cxx/fn_def_args-i2.h"
+
+void FnWithSmearedDefArgs2(int = 0, int);
+void FnWithSmearedDefArgs3(int, int = 0, int);

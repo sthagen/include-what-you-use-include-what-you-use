@@ -1,4 +1,4 @@
-//===--- item.h - iwyu test -----------------------------------------------===//
+//===--- fn_def_args-i3.h - test input file for iwyu ----------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,7 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-class Item {
-public:
-    void process();
-};
+#include "fn_def_args-i2.h"
+
+namespace ns {
+using ::FnWithSmearedDefArgs2;
+}
