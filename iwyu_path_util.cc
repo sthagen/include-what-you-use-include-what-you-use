@@ -15,7 +15,7 @@
 #include "iwyu_port.h"
 #include "iwyu_string_util.h"
 #include "llvm/ADT/SmallString.h"
-#include "llvm/ADT/StringRef.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Path.h"
 
@@ -56,39 +56,49 @@ const vector<HeaderSearchPath>& HeaderSearchPaths() {
   return *header_search_paths;
 }
 
-bool IsHeaderFile(string path) {
-  if (EndsWith(path, "\"") || EndsWith(path, ">"))
-    path = path.substr(0, path.length() - 1);
+bool IsHeaderFilename(StringRef path) {
+  CHECK_(!IsQuotedInclude(path));
 
-  // Some headers don't have an extension (e.g. <string>), or have an
-  // unusual one (the compiler doesn't care), so it's safer to
-  // enumerate non-header extensions instead.
-  //  for (size_t i = 0; i < llvm::array_lengthof(source_extensions); ++i) {
-  for (const char* source_extension : source_extensions) {
-    if (EndsWith(path, source_extension))
-      return false;
+  if (IsSpecialFilename(path))
+    return false;
+
+  // Some headers don't have an extension (e.g. <string>).
+  StringRef ext = llvm::sys::path::extension(path);
+  if (ext.empty()) {
+    return true;
   }
 
-  return true;
+  // Some may have an unusual extension (the compiler doesn't care), so it's
+  // safer to check that it's none of non-header extensions instead.
+  return llvm::none_of(source_extensions,
+                       [&](const char* src_ext) { return ext == src_ext; });
 }
 
-string Basename(const string& path) {
+bool IsQuotedHeaderFilename(StringRef quoted_include) {
+  CHECK_(IsQuotedInclude(quoted_include));
+
+  if (IsSpecialFilename(quoted_include))
+    return false;
+
+  StringRef path = quoted_include.substr(1, quoted_include.size() - 2);
+  return IsHeaderFilename(path);
+}
+
+string Basename(StringRef path) {
   string::size_type last_slash = path.rfind('/');
   if (last_slash != string::npos) {
-    return path.substr(last_slash + 1);
+    path = path.substr(last_slash + 1);
   }
-  return path;
+  return path.str();
 }
 
 string GetCanonicalName(string file_path) {
-  // Clang special filenames are already canonical.
-  // <stdin> is not a special filename, but it's canonical too.
-  if (IsSpecialFilename(file_path) || file_path == "<stdin>")
-    return file_path;
-
-  // All known special filenames which look like quoted-includes are handled
-  // above. Reject anything else that looks like a quoted-include.
+  // Canonical names can only be plain file paths.
   CHECK_(!IsQuotedInclude(file_path));
+
+  // Clang special filenames are already canonical.
+  if (IsSpecialFilename(file_path))
+    return file_path;
 
   file_path = NormalizeFilePath(file_path);
 
@@ -124,14 +134,14 @@ string GetCanonicalName(string file_path) {
   return file_path;
 }
 
-string NormalizeFilePath(const string& path) {
+string NormalizeFilePath(StringRef path) {
   llvm::SmallString<128> normalized(path);
   llvm::sys::path::remove_dots(normalized, /*remove_dot_dot=*/true);
   // Canonicalize directory separators (forward slashes considered canonical.)
   return llvm::sys::path::convert_to_slash(normalized);
 }
 
-string NormalizeDirPath(const string& path) {
+string NormalizeDirPath(StringRef path) {
   string result = NormalizeFilePath(path);
   // Ensure trailing slash.
   if (!result.empty() && result.back() != '/')
@@ -139,11 +149,11 @@ string NormalizeDirPath(const string& path) {
   return result;
 }
 
-bool IsAbsolutePath(const string& path) {
+bool IsAbsolutePath(StringRef path) {
   return llvm::sys::path::is_absolute(path);
 }
 
-string MakeAbsolutePath(const string& path) {
+string MakeAbsolutePath(StringRef path) {
   llvm::SmallString<128> absolute_path(path);
   std::error_code error = llvm::sys::fs::make_absolute(absolute_path);
   CHECK_(!error);
@@ -151,19 +161,19 @@ string MakeAbsolutePath(const string& path) {
   return absolute_path.str().str();
 }
 
-string MakeAbsolutePath(const string& base_path, const string& relative_path) {
+string MakeAbsolutePath(StringRef base_path, StringRef relative_path) {
   llvm::SmallString<128> absolute_path(base_path);
   llvm::sys::path::append(absolute_path, relative_path);
 
   return absolute_path.str().str();
 }
 
-string GetParentPath(const string& path) {
+string GetParentPath(StringRef path) {
   llvm::StringRef parent = llvm::sys::path::parent_path(path);
   return parent.str();
 }
 
-bool StripPathPrefix(string* path, const string& prefix_path) {
+bool StripPathPrefix(string* path, StringRef prefix_path) {
   // Only makes sense if both are absolute or both are relative (to same dir).
   CHECK_(IsAbsolutePath(*path) == IsAbsolutePath(prefix_path));
   return StripLeft(path, prefix_path);
@@ -171,13 +181,13 @@ bool StripPathPrefix(string* path, const string& prefix_path) {
 
 // Converts a file-path, such as /usr/include/stdio.h, to a
 // quoted include, such as <stdio.h>.
-string ConvertToQuotedInclude(const string& filepath,
-                              const string& includer_path) {
+string ConvertToQuotedInclude(StringRef filepath,
+                              StringRef includer_path) {
   // includer_path must be given as an absolute path.
   CHECK_(includer_path.empty() || IsAbsolutePath(includer_path));
 
   if (filepath == "<built-in>")
-    return filepath;
+    return filepath.str();
 
   // Get path into same format as header search paths: Absolute and normalized.
   string path = NormalizeFilePath(MakeAbsolutePath(filepath));
@@ -203,11 +213,14 @@ string ConvertToQuotedInclude(const string& filepath,
   return AddQuotes(path, /*angled=*/false);
 }
 
-bool IsQuotedInclude(const string& s) {
-  if (s.size() < 2)
+bool IsQuotedInclude(StringRef s) {
+  if (s.size() < 3)
     return false;
-  return ((StartsWith(s, "<") && EndsWith(s, ">")) ||
-          (StartsWith(s, "\"") && EndsWith(s, "\"")));
+
+  if (s.front() == '<' && s.back() == '>')
+    return !IsSpecialFilename(s);
+
+  return (s.front() == '"' && s.back() == '"');
 }
 
 string AddQuotes(string include_name, bool angled) {
@@ -217,7 +230,13 @@ string AddQuotes(string include_name, bool angled) {
   return "\"" + include_name + "\"";
 }
 
-string PathJoin(const string& dirpath, const string& relative_path) {
+bool IsSpecialFilename(StringRef name) {
+  return (name == "<built-in>" || name == "<command line>" ||
+          name == "<scratch space>" || name == "<inline asm>" ||
+          name == "<stdin>");
+}
+
+string PathJoin(StringRef dirpath, StringRef relative_path) {
   CHECK_(!IsAbsolutePath(relative_path));
   llvm::SmallString<128> res(dirpath);
   llvm::sys::path::append(res, relative_path);

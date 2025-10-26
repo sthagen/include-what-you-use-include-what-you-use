@@ -19,6 +19,7 @@
 
 namespace include_what_you_use {
 
+using llvm::StringRef;
 using std::string;
 using std::vector;
 
@@ -35,13 +36,15 @@ struct HeaderSearchPath {
 void SetHeaderSearchPaths(const vector<HeaderSearchPath>& search_paths);
 const vector<HeaderSearchPath>& HeaderSearchPaths();
 
-// Returns true if 'path' is a path of a (possibly enclosed in double
-// quotes or <>) C++ header file.
-bool IsHeaderFile(string path);
+// Returns true if 'path' is a path of a C++ header file.
+bool IsHeaderFilename(StringRef path);
+
+// Returns true if 'quoted_include' contains a path of a C++ header file.
+bool IsQuotedHeaderFilename(StringRef quoted_include);
 
 // If the path has a slash, return the part after the last slash,
 // else return the input path.
-string Basename(const string& path);
+string Basename(StringRef path);
 
 // Normalizes the file path, then strips uninteresting suffixes from
 // the file name. Replaces "/internal/" with "/public/" and
@@ -50,26 +53,26 @@ string GetCanonicalName(string file_path);
 
 // Replaces "\" by "/" (Microsoft platform paths) and collapses all dot
 // components in path.
-string NormalizeFilePath(const string& path);
+string NormalizeFilePath(StringRef path);
 
 // Normalizes like NormalizeFilePath and ensures trailing slash.
 // Hence use only for directories!
-string NormalizeDirPath(const string& path);
+string NormalizeDirPath(StringRef path);
 
 // Is path absolute?
-bool IsAbsolutePath(const string& path);
+bool IsAbsolutePath(StringRef path);
 
 // Get absolute version of path.
-string MakeAbsolutePath(const string& path);
-string MakeAbsolutePath(const string& base_path, const string& relative_path);
+string MakeAbsolutePath(StringRef path);
+string MakeAbsolutePath(StringRef base_path, StringRef relative_path);
 
 // Get the parent of path.
-string GetParentPath(const string& path);
+string GetParentPath(StringRef path);
 
 // Try to strip the prefix_path from the front of path.
 // The path assumed to be normalized but either absolute or relative.
 // Return true if path was stripped.
-bool StripPathPrefix(string* path, const string& prefix_path);
+bool StripPathPrefix(string* path, StringRef prefix_path);
 
 // Below, we talk 'quoted' includes.  A quoted include is something
 // that would be written on an #include line, complete with the <> or
@@ -78,26 +81,23 @@ bool StripPathPrefix(string* path, const string& prefix_path);
 
 // Converts a file-path, such as /usr/include/stdio.h, to a
 // quoted include, such as <stdio.h>.
-string ConvertToQuotedInclude(const string& filepath,
-                              const string& includer_path = "");
+string ConvertToQuotedInclude(StringRef filepath,
+                              StringRef includer_path = {});
 
 // Returns true if the string is a quoted include.
-bool IsQuotedInclude(const string& s);
-
-// Returns true if argument is one of the special filenames used by Clang for
-// implicit buffers ("<built-in>", "<command-line>", etc).
-inline bool IsSpecialFilename(llvm::StringRef name) {
-  return (name == "<built-in>" || name == "<command line>" ||
-          name == "<scratch space>" || name == "<inline asm>");
-}
+bool IsQuotedInclude(StringRef s);
 
 // Returns include name enclosed in double quotes or angle quotes, depending on
 // the angled flag. An include name is the unquoted relative name that would be
 // used on an include line, e.g. lib/mytype.h or stdio.h.
 string AddQuotes(string include_name, bool angled);
 
+// Returns true if argument is one of the special filenames used by Clang for
+// implicit buffers ("<built-in>", "<command-line>", etc).
+bool IsSpecialFilename(StringRef name);
+
 // Append path to dirpath.
-string PathJoin(const string& dirpath, const string& relative_path);
+string PathJoin(StringRef dirpath, StringRef relative_path);
 
 }  // namespace include_what_you_use
 

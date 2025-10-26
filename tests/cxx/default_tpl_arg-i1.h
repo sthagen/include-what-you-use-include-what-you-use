@@ -67,4 +67,10 @@ using AliasTpl5 = int;
 template <int, int>
 using AliasTpl6 = int;
 
+template <typename T = int>
+class SpecializedClassTpl {};
+
+template <typename = int>
+class ClassTplNoDefinition;
+
 #endif  // INCLUDE_WHAT_YOU_USE_TESTS_CXX_DEFAULT_TPL_ARG_I1_H_

@@ -310,7 +310,7 @@ OneUse::OneUse(const string& symbol_name, OptionalFileEntryRef dfn_file,
       is_iwyu_violation_(false) {
   CHECK_(dfn_file && "OneUse: dfn_file must be set");
   CHECK_(!decl_filepath_.empty() && "OneUse: dfn_file must have a name");
-  CHECK_(decl_filepath_ == "<stdin>" || !IsQuotedInclude(decl_filepath_))
+  CHECK_(IsSpecialFilename(decl_filepath_) || !IsQuotedInclude(decl_filepath_))
       << ": OneUse: dfn_file must have a real name, was: " << decl_filepath_;
 }
 
@@ -1115,9 +1115,12 @@ void ProcessForwardDeclare(OneUse* use,
     tag_decl = tpl_decl->getTemplatedDecl();
 
   // (A2) If it has default template parameters, recategorize as a full use.
-  // Suppress this if there's no definition for this class (so can't full-use).
+  // Do this even if the used decl is a fwd-decl so that IWYU doesn't insert
+  // another fwd-decl specifying the same default argument. But keep the use
+  // kind when the forward-declaration is in the same file so as not to suggest
+  // removing the forward-declaration as unused.
   if (tpl_decl && HasDefaultTemplateParameters(tpl_decl) &&
-      GetTagDefinition(tpl_decl) != nullptr) {
+      GetFileEntry(use->use_loc()) != GetFileEntry(use->decl())) {
     VERRS(6) << "Moving " << use->symbol_name()
              << " from fwd-decl use to full use: has default template param"
              << " (" << use->PrintableUseLoc() << ")\n";
@@ -1512,27 +1515,38 @@ void CalculateIwyuForForwardDeclareUse(
     tag_decl = tpl_decl->getTemplatedDecl();
   CHECK_(tag_decl && "Non-tag types should have been handled already");
 
+  vector<const NamedDecl*> dfns;
+  if (const NamedDecl* dfn = GetTagDefinition(use->decl()))
+    dfns.push_back(dfn);
+  if (tpl_decl) {
+    // Specializations may be considered like definitions here because they also
+    // require the primary template declaration to be present.
+    for (const ClassTemplateSpecializationDecl* spec :
+         tpl_decl->specializations()) {
+      if (const NamedDecl* dfn = GetTagDefinition(spec))
+        dfns.push_back(dfn);
+    }
+  }
   // If this tag type is defined in one of the desired_includes, mark that
   // fact.  Also if it's defined in one of the actual_includes.
-  bool dfn_is_in_desired_includes = false;
-  bool dfn_is_in_actual_includes = false;
-
-  const NamedDecl* dfn = GetTagDefinition(use->decl());
-  if (dfn) {
+  const NamedDecl* dfn_from_desired_includes = nullptr;
+  const NamedDecl* dfn_from_actual_includes = nullptr;
+  for (const NamedDecl* dfn : dfns) {
     vector<string> headers =
         GlobalIncludePicker().GetCandidateHeadersForFilepathIncludedFrom(
             GetFilePath(dfn), GetFilePath(use->use_loc()));
     for (const string& header : headers) {
       if (ContainsKey(desired_includes, header))
-        dfn_is_in_desired_includes = true;
+        dfn_from_desired_includes = dfn;
       if (ContainsKey(actual_includes, header))
-        dfn_is_in_actual_includes = true;
+        dfn_from_actual_includes = dfn;
     }
     // We ourself are always a 'desired' and 'actual' include (though
     // only if the definition is visible from the use location).
-    if (DeclIsVisibleToUseInSameFile(dfn, *use)) {
-      dfn_is_in_desired_includes = true;
-      dfn_is_in_actual_includes = true;
+    if (IsBeforeInSameFile(dfn, use->use_loc())) {
+      dfn_from_desired_includes = dfn;
+      dfn_from_actual_includes = dfn;
+      break;
     }
   }
 
@@ -1559,13 +1573,13 @@ void CalculateIwyuForForwardDeclareUse(
 
   // (D1) Mark that the fwd-declare is satisfied by dfn in desired include.
   const NamedDecl* providing_decl = nullptr;
-  if (dfn_is_in_desired_includes) {
-    providing_decl = dfn;
+  if (dfn_from_desired_includes) {
+    providing_decl = dfn_from_desired_includes;
     VERRS(6) << "Noting fwd-decl use of " << use->symbol_name()
              << " (" << use->PrintableUseLoc() << ") is satisfied by dfn in "
              << PrintableLoc(GetLocation(providing_decl)) << "\n";
     // Mark that this use is another reason we want this header.
-    const string file = GetFilePath(dfn);
+    const string file = GetFilePath(providing_decl);
     const string quoted_hdr = ConvertToQuotedInclude(file);
     use->set_suggested_header(quoted_hdr);
   } else if (same_file_decl) {
@@ -1594,10 +1608,10 @@ void CalculateIwyuForForwardDeclareUse(
   }
 
   // (D2) Mark iwyu violation unless defined in a current #include.
-  if (dfn_is_in_actual_includes) {
+  if (dfn_from_actual_includes) {
     VERRS(6) << "Ignoring fwd-decl use of " << use->symbol_name()
              << " (" << use->PrintableUseLoc() << "): have definition at "
-             << PrintableLoc(GetLocation(dfn)) << "\n";
+             << PrintableLoc(GetLocation(dfn_from_actual_includes)) << "\n";
   } else if (same_file_decl) {
     VERRS(6) << "Ignoring fwd-decl use of " << use->symbol_name()
              << " (" << use->PrintableUseLoc() << "): have earlier fwd-decl at "
@@ -1646,7 +1660,7 @@ void CalculateIwyuForFullUse(OneUse* use,
   // iwyu will say 'replace the #include of y.h with an #include of
   // x.cc,' which the code below will then strip.  The end result is
   // z.cc will not #include anything, and will fail to compile.
-  if (!IsHeaderFile(use->suggested_header()) &&
+  if (!IsQuotedHeaderFilename(use->suggested_header()) &&
       !ContainsKey(actual_includes, use->suggested_header())) {
     VERRS(6) << "Ignoring use of " << use->symbol_name()
              << " (" << use->PrintableUseLoc() << "): #including .cc\n";
@@ -1715,10 +1729,10 @@ void IwyuFileInfo::CalculateIwyuViolations(vector<OneUse>* uses) {
       quoted_file_, direct_includes(), associated_desired_includes, uses);
 
   // (C4) Remove .cc files from desired-includes unless they're in actual-inc.
-  for (const string& header_name : desired_set_cover) {
-    if (IsHeaderFile(header_name) ||
-        ContainsKey(direct_includes(), header_name))
-      desired_includes_.insert(header_name);
+  for (const string& quoted_include : desired_set_cover) {
+    if (IsQuotedHeaderFilename(quoted_include) ||
+        ContainsKey(direct_includes(), quoted_include))
+      desired_includes_.insert(quoted_include);
   }
   desired_includes_have_been_calculated_ = true;
 
