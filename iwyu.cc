@@ -97,6 +97,7 @@
 #include <utility>                      // for pair
 #include <vector>                       // for vector, swap
 
+#include "clang/AST/ASTConcept.h"
 #include "clang/AST/ASTConsumer.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/Attr.h"
@@ -106,7 +107,6 @@
 #include "clang/AST/DeclTemplate.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/ExprCXX.h"
-#include "clang/AST/ExprConcepts.h"
 #include "clang/AST/NestedNameSpecifier.h"
 #include "clang/AST/NestedNameSpecifierBase.h"
 #include "clang/AST/OperationKinds.h"
@@ -180,6 +180,7 @@ using clang::ASTFrontendAction;
 using clang::ArraySubscriptExpr;
 using clang::ArrayType;
 using clang::Attr;
+using clang::AutoTypeLoc;
 using clang::BinaryOperator;
 using clang::BinaryOperatorKind;
 using clang::CXXBaseSpecifier;
@@ -203,7 +204,7 @@ using clang::CastExpr;
 using clang::ClassTemplateSpecializationDecl;
 using clang::CleanupAttr;
 using clang::CompilerInstance;
-using clang::ConceptSpecializationExpr;
+using clang::ConceptReference;
 using clang::ConstantArrayType;
 using clang::Decl;
 using clang::DeclContext;
@@ -3171,6 +3172,24 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
   //------------------------------------------------------------
   // Visitors of types derived from Type.
 
+  // IWYU generally handles types explicitly written in the source. Other types
+  // are reported from VisitCXXConstructExpr and other contexts where the type
+  // should be complete. Hence, it is assumed that type visitors are not called
+  // for underlying types of sugar types. It is true for e.g. typedef types,
+  // using types, but the default version of TraverseAutoTypeLoc does call
+  // TraverseType for the underlying type despite it is not explicitly written.
+  // This overloaded version is needed to avoid that call.
+  bool TraverseAutoTypeLoc(AutoTypeLoc typeloc, bool /*traverse_qualifier*/) {
+    if (typeloc.isConstrained()) {
+      if (!this->getDerived().TraverseConceptReference(
+              typeloc.getConceptReference())) {
+        return false;
+      }
+    }
+    // WalkUpFromAutoTypeLoc may be inserted here if necessary.
+    return true;
+  }
+
   bool VisitType(Type* type) {
     // In VisitFunctionDecl(), we say all children of function
     // declarations are forward-declarable.  This is true, *except*
@@ -5191,12 +5210,12 @@ class IwyuAstConsumer
     return Base::VisitDeclRefExpr(expr);
   }
 
-  bool VisitConceptSpecializationExpr(ConceptSpecializationExpr* expr) {
+  bool VisitConceptReference(ConceptReference* concept_ref) {
     if (CanIgnoreCurrentASTNode())
       return true;
-    ReportDeclUse(CurrentLoc(), expr->getNamedConcept());
+    ReportDeclUse(CurrentLoc(), concept_ref->getNamedConcept());
     // TODO(bolshakov): analyze type parameter usage.
-    return Base::VisitConceptSpecializationExpr(expr);
+    return Base::VisitConceptReference(concept_ref);
   }
 
   // --- Visitors of types derived from Type.
