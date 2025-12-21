@@ -1913,6 +1913,7 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
       case clang::CK_HLSLVectorTruncation:
       case clang::CK_HLSLElementwiseCast:
       case clang::CK_HLSLAggregateSplatCast:
+      case clang::CK_HLSLMatrixTruncation:
         break;
 
       // Ignore non-ptr-to-ptr casts.
@@ -2186,7 +2187,6 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
       case TypeTrait::UTT_IsTriviallyRelocatable:
       case TypeTrait::UTT_IsTriviallyEqualityComparable:
       case TypeTrait::UTT_IsCppTriviallyRelocatable:
-      case TypeTrait::UTT_IsReplaceable:
       case TypeTrait::UTT_CanPassInRegs:
       case TypeTrait::UTT_HasNothrowConstructor:
       case TypeTrait::UTT_HasNothrowCopy:
