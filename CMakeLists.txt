@@ -41,6 +41,17 @@ endif()
 message(STATUS
   "IWYU: configuring for LLVM ${LLVM_VERSION} from ${iwyu_llvm_dir}")
 
+# Set common C++ properties (LLVM requires C++17), unless the user knows better.
+if (NOT DEFINED CMAKE_CXX_STANDARD)
+  set(CMAKE_CXX_STANDARD 17)
+endif()
+if (NOT DEFINED CMAKE_CXX_STANDARD_REQUIRED)
+  set(CMAKE_CXX_STANDARD_REQUIRED ON)
+endif()
+if (NOT DEFINED CMAKE_CXX_EXTENSIONS)
+  set(CMAKE_CXX_EXTENSIONS OFF)
+endif()
+
 # The good default is given by the llvm toolchain installation itself, but still
 # in case both static and shared libraries are available, allow to override that
 # default.
@@ -157,13 +168,6 @@ if (TARGET clang-resource-headers)
   add_dependencies(include-what-you-use clang-resource-headers)
 endif()
 
-# LLVM requires C++17, so follow suit.
-set_target_properties(iwyu include-what-you-use PROPERTIES
-  CXX_STANDARD_REQUIRED ON
-  CXX_STANDARD 17
-  CXX_EXTENSIONS OFF
-)
-
 separate_arguments(LLVM_DEFINITIONS_LIST NATIVE_COMMAND ${LLVM_DEFINITIONS})
 
 target_compile_definitions(iwyu PUBLIC
@@ -228,6 +232,65 @@ if (WIN32)
   )
 endif()
 
+# Build vendored gtest library
+add_library(iwyu-gtest
+  vendor/googletest/src/gtest-all.cc
+)
+
+target_include_directories(iwyu-gtest
+  PUBLIC
+  vendor/googletest/include
+  PRIVATE
+  vendor/googletest
+)
+
+# gtest: Disable -Wcovered-switch-default if compiler supports it.
+include(CheckCompilerFlag)
+check_compiler_flag(CXX
+  -Wcovered-switch-default
+  iwyu_cxx_supports_covered_switch_default)
+
+if (iwyu_cxx_supports_covered_switch_default)
+  target_compile_options(iwyu-gtest
+    PRIVATE
+    -Wno-covered-switch-default
+  )
+endif()
+
+# gtest: Use portable exception semantics for MSVC.
+if (MSVC)
+  target_compile_options(iwyu-gtest
+    PUBLIC
+    /EHsc
+  )
+endif()
+
+# Add unittest target.
+add_llvm_executable(iwyu-unittests
+  unittests/iwyu_unittest_main.cc
+)
+
+target_include_directories(iwyu-unittests PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+target_link_libraries(iwyu-unittests PRIVATE
+  iwyu
+  iwyu-gtest
+)
+
+enable_testing()
+add_test(NAME iwyu-unittests
+  COMMAND $<TARGET_FILE:iwyu-unittests>
+)
+
+# Expose a custom run-unittests target in the generated buildsystem.
+add_custom_target(run-unittests
+  DEPENDS iwyu-unittests
+  COMMAND $<TARGET_FILE:iwyu-unittests>
+  USES_TERMINAL
+)
+
 # Install programs.
 include(GNUInstallDirs)
 install(TARGETS
@@ -258,8 +321,6 @@ endif()
 find_package(Python3 COMPONENTS Interpreter)
 if (Python3_Interpreter_FOUND)
   # Map the various IWYU test scripts to CTest tests.
-  enable_testing()
-
   function(iwyu_add_test name file)
     add_test(NAME ${name}
       COMMAND ${Python3_EXECUTABLE} run_iwyu_tests.py --run-test-file=${file}
