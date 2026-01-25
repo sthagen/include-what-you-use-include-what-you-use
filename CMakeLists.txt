@@ -267,6 +267,9 @@ endif()
 
 # Add unittest target.
 add_llvm_executable(iwyu-unittests
+  unittests/iwyu_lexer_utils_test.cc
+  unittests/iwyu_path_util_test.cc
+  unittests/iwyu_string_util_test.cc
   unittests/iwyu_unittest_main.cc
 )
 
@@ -284,8 +287,8 @@ add_test(NAME iwyu-unittests
   COMMAND $<TARGET_FILE:iwyu-unittests>
 )
 
-# Expose a custom run-unittests target in the generated buildsystem.
-add_custom_target(run-unittests
+# Expose a custom run target in the generated buildsystem.
+add_custom_target(iwyu-run-unittests
   DEPENDS iwyu-unittests
   COMMAND $<TARGET_FILE:iwyu-unittests>
   USES_TERMINAL
