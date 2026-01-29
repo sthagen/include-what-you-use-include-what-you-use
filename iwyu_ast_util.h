@@ -792,6 +792,8 @@ bool IsDefTplArgInherited(const clang::NamedDecl* tpl_param);
 // parameter declaration.
 bool IsDefTplArgSpecified(const clang::NamedDecl* tpl_param);
 
+unsigned GetTplParamNumberWithoutPack(const clang::TemplateDecl*);
+
 // --- Utilities for Type.
 
 // See if a given type is a 'real' elaborated type.  (An
@@ -840,6 +842,11 @@ set<const clang::Type*> GetCanonicalComponentsOfType(const clang::Type* type);
 // template <class T> struct Tpl1 { typedef Tpl2<T, A> Alias; };
 // the returned set for the type 'Tpl1<B>::Alias' contains 'A' but not 'B'
 // or any sugar for 'B'.
+// This does not necessarily return all the complex components but should return
+// at least all tag and template specialization types, which should be
+// sufficient for users. E.g., given '__add_pointer(C)&', neither
+// '__add_pointer(C)' nor 'C*' is returned, but 'C' should be present in the
+// output set.
 set<const clang::Type*> GetComponentsOfTypeWithoutSubstituted(
     const clang::Type*);
 
