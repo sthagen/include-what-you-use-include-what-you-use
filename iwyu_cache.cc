@@ -13,6 +13,7 @@
 #include <set>
 #include <string>
 
+#include "clang/AST/Decl.h"
 #include "clang/AST/DeclTemplate.h"
 #include "clang/AST/TemplateBase.h"
 #include "clang/AST/Type.h"
@@ -72,7 +73,8 @@ map<const Type*, const Type*> FullUseCache::GetPrecomputedResugarMap(
     fulluse_types.insert({"std::forward_list", "std::list", "std::vector"});
 
   const NamedDecl* tpl_decl = TypeToDeclAsWritten(tpl_type);
-  if (!ContainsKey(fulluse_types, GetWrittenQualifiedNameAsString(tpl_decl)))
+  if (!ContainsKey(fulluse_types, GetWrittenQualifiedNameAsString(
+                                      tpl_decl, /*with_fn_args=*/false)))
     return map<const Type*, const Type*>();
 
   // The code below doesn't handle template-template args/etc.  None

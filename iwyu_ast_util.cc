@@ -285,6 +285,20 @@ static void PrintExplicitSpecTplArgs(const T* spec,
   }
 }
 
+static void PrintFnArgs(const FunctionDecl* decl,
+                        const PrintingPolicy& printing_policy,
+                        raw_ostream& ostream) {
+  ostream << '(';
+  ListSeparator sep;  // ', ' by default.
+  for (const ParmVarDecl* param : decl->parameters()) {
+    ostream << sep;
+    param->getType().getUnqualifiedType().print(ostream, printing_policy);
+  }
+  if (decl->isVariadic())
+    ostream << sep << "...";
+  ostream << ')';
+}
+
 }  // anonymous namespace
 
 //------------------------------------------------------------
@@ -565,7 +579,8 @@ void PrintStmt(const Stmt* stmt) {
   dumper.Visit(stmt);
 }
 
-string GetWrittenQualifiedNameAsString(const NamedDecl* named_decl) {
+string GetWrittenQualifiedNameAsString(const NamedDecl* named_decl,
+                                       bool with_fn_args) {
   std::string retval;
   llvm::raw_string_ostream ostream(retval);
   PrintingPolicy printing_policy =
@@ -580,6 +595,11 @@ string GetWrittenQualifiedNameAsString(const NamedDecl* named_decl) {
   } else if (const auto* var_spec =
                  dyn_cast<VarTemplateSpecializationDecl>(named_decl)) {
     PrintExplicitSpecTplArgs(var_spec, printing_policy, ostream);
+  }
+
+  if (with_fn_args) {
+    if (const auto* fn_decl = dyn_cast<FunctionDecl>(named_decl))
+      PrintFnArgs(fn_decl, printing_policy, ostream);
   }
 
   // Replace clang placeholders in partial specialization arguments with :N,
@@ -964,13 +984,22 @@ static map<const Type*, const Type*> GetTplTypeResugarMapForFunctionNoCallExpr(
   map<const Type*, const Type*> retval;
   if (!decl)   // can be nullptr if the function call is via a function pointer
     return retval;
+  auto add_type_to_map = [&retval](const Type* arg_type) {
+    retval[GetCanonicalType(arg_type)] = arg_type;
+    VERRS(6) << "Adding an implicit tpl-function type of interest: "
+             << PrintableType(arg_type) << "\n";
+  };
   if (const TemplateArgumentList* tpl_list =
           decl->getTemplateSpecializationArgs()) {
     for (unsigned i = start_arg; i < tpl_list->size(); ++i) {
-      if (const Type* arg_type = GetTemplateArgAsType(tpl_list->get(i))) {
-        retval[GetCanonicalType(arg_type)] = arg_type;
-        VERRS(6) << "Adding an implicit tpl-function type of interest: "
-                 << PrintableType(arg_type) << "\n";
+      const TemplateArgument& arg = tpl_list->get(i);
+      if (const Type* arg_type = GetTemplateArgAsType(arg)) {
+        add_type_to_map(arg_type);
+      } else if (arg.getKind() == TemplateArgument::Pack) {
+        for (const TemplateArgument& pack_arg : arg.pack_elements()) {
+          if (const Type* pack_arg_type = GetTemplateArgAsType(pack_arg))
+            add_type_to_map(pack_arg_type);
+        }
       }
     }
   }
@@ -2152,7 +2181,9 @@ const Type* TypeOfParentIfMethod(const CallExpr* expr) {
   // DeclRefExpr if we're a static class method or an overloaded operator.
   const Expr* callee_expr = expr->getCallee()->IgnoreParenCasts();
   if (const MemberExpr* member_expr = DynCastFrom(callee_expr)) {
-    const Type* class_type = GetTypeOf(member_expr->getBase());
+    // TODO(bolshakov): IgnoreParenImpCasts instead of IgnoreImpCasts?
+    const Type* class_type =
+        GetTypeOf(member_expr->getBase()->IgnoreImpCasts());
     // For class->member(), class_type is a pointer.
     return RemovePointersAndReferencesAsWritten(class_type);
   } else if (const DeclRefExpr* ref_expr = DynCastFrom(callee_expr)) {
