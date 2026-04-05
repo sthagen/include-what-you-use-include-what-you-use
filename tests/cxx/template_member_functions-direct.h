@@ -19,3 +19,19 @@ template <typename T = IndirectClass>
 TplUsingInDtor<T> TplGetTplUsingInDtorDefArgProviding() {
   return TplUsingInDtor<T>();
 }
+
+TplUsingInDtor<IndirectClass> GetTplUsingInDtorProviding();
+
+template <typename T>
+struct TplWithInnerExplSpec {
+  template <typename>
+  struct Inner;
+  template <>
+  struct Inner<int> {
+    void Fn() {
+      T t;
+    }
+  };
+};
+
+extern TplWithInnerExplSpec<IndirectClass>::Inner<int> twiesicii;

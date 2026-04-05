@@ -105,7 +105,6 @@ using clang::ExprWithCleanups;
 using clang::FunctionDecl;
 using clang::FunctionProtoType;
 using clang::FunctionTemplateDecl;
-using clang::FunctionTemplateSpecializationInfo;
 using clang::FunctionType;
 using clang::IdentifierInfo;
 using clang::ImplicitCastExpr;
@@ -171,6 +170,7 @@ using clang::VarDecl;
 using clang::VarTemplateDecl;
 using clang::VarTemplatePartialSpecializationDecl;
 using clang::VarTemplateSpecializationDecl;
+using clang::isTemplateInstantiation;
 using llvm::ArrayRef;
 using llvm::ListSeparator;
 using llvm::PointerUnion;
@@ -1500,16 +1500,6 @@ bool IsBuiltinFunction(const NamedDecl* decl) {
   return false;
 }
 
-bool IsImplicitlyInstantiatedDfn(const FunctionDecl* decl) {
-  const FunctionTemplateSpecializationInfo* tpl_spec_info =
-      decl->getTemplateSpecializationInfo();
-  if (!tpl_spec_info)
-    return false;  // Not a template specialization.
-  return decl->isThisDeclarationADefinition() &&
-         tpl_spec_info->getTemplateSpecializationKind() ==
-             clang::TSK_ImplicitInstantiation;
-}
-
 const CXXMethodDecl* GetFromLeastDerived(const CXXMethodDecl* decl) {
   while (decl->size_overridden_methods())
     decl = *decl->begin_overridden_methods();
@@ -1669,7 +1659,25 @@ const Type* Desugar(const Type* type) {
 }
 
 bool IsTemplatizedType(const Type* type) {
-  return type && type->getAs<TemplateSpecializationType>();
+  if (!type)
+    return false;
+  // If decl is an explicit specialization, it may still be implicitly
+  // instantiated, like in this case:
+  //
+  // template <typename T> struct Outer {
+  //   template <typename> struct Inner;
+  //   template <> struct Inner<int> {};
+  // };
+  //
+  // Given this example, Outer<char>::Inner<int> is an explicit specialization
+  // but at the same time an implicit instantiation for IWYU purposes. Thus,
+  // parent semantic contexts should be explored.
+  for (const auto* decl = type->getAsCXXRecordDecl(); decl;
+       decl = dyn_cast<CXXRecordDecl>(decl->getDeclContext())) {
+    if (isTemplateInstantiation(decl->getTemplateSpecializationKind()))
+      return true;
+  }
+  return false;
 }
 
 bool InvolvesTypeForWhich(const Type* type, function<bool(const Type*)> pred) {

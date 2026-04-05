@@ -758,10 +758,6 @@ bool DeclsAreInSameClass(const clang::Decl* decl1, const clang::Decl* decl2);
 // Returns true if the given decl/name is a builtin function
 bool IsBuiltinFunction(const clang::NamedDecl* decl);
 
-// Returns true if the function decl is an implicitly instantiated definition
-// (in particular, not just a declaration).
-bool IsImplicitlyInstantiatedDfn(const clang::FunctionDecl*);
-
 // If the given method overrides base class methods, returns the overridden
 // method declaration from the least derived class, otherwise returns the given
 // argument.
@@ -857,7 +853,8 @@ set<const clang::Type*> GetCanonicalComponentsOfType(const clang::Type* type);
 set<const clang::Type*> GetComponentsOfTypeWithoutSubstituted(
     const clang::Type*);
 
-// Returns true if the type has any template arguments.
+// Returns true if the type refers to an instantiated template specialization
+// or to its member class, but not to some (pure) explicit specialization.
 bool IsTemplatizedType(const clang::Type* type);
 
 // Returns true if any type involved (recursively examining template

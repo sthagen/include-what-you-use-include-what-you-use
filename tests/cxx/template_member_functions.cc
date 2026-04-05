@@ -83,10 +83,33 @@ TplUsingInDtor<T> TplGetTplUsingInDtor3() {
   return {};
 }
 
+template <typename T>
+TplUsingInDtor<T> TplGetTplUsingInDtor4() {
+  throw 0;
+}
+
 template <typename T = IndirectClass>
 TplUsingInDtor<T> TplGetTplUsingInDtorDefArgNonProviding() {
   return TplUsingInDtor<T>();
 }
+
+template <typename T>
+struct IndirectMethod {
+  struct Intermediate {
+    void Method() {
+      T t;
+    }
+  };
+};
+
+template <typename>
+class ExplSpecTpl;
+
+template <>
+class ExplSpecTpl<IndirectClass> {
+  // IWYU: IndirectClass is...*indirect.h
+  IndirectClass ic;
+};
 
 void Fn() {
   // IWYU: IndirectClass is...*indirect.h
@@ -104,16 +127,19 @@ void Fn() {
 
   // IWYU: IndirectClass is...*indirect.h
   GetTplUsingInDtor();
+  GetTplUsingInDtorProviding();
   GetProvidingTplUsingInDtor();
   // IWYU: IndirectClass is...*indirect.h
   GetNonProvidingTplUsingInDtor();
 
   // IWYU: IndirectClass is...*indirect.h
   TplGetTplUsingInDtor1<IndirectClass>();
-  // TODO: IWYU: IndirectClass is...*indirect.h
+  // IWYU: IndirectClass is...*indirect.h
   TplGetTplUsingInDtor2<IndirectClass>();
-  // TODO: IWYU: IndirectClass is...*indirect.h
+  // IWYU: IndirectClass is...*indirect.h
   TplGetTplUsingInDtor3<IndirectClass>();
+  // IWYU: IndirectClass is...*indirect.h
+  TplGetTplUsingInDtor4<IndirectClass>();
 
   // IWYU: IndirectClass is...*indirect.h
   TplGetTplUsingInDtorDefArgNonProviding();
@@ -136,6 +162,19 @@ void Fn() {
   *dft;
   // IWYU: IndirectClass is...*indirect.h
   *(dft);
+
+  // IWYU: IndirectClass is...*indirect.h
+  twiesicii.Fn();
+
+  // TODO: IndirectClass need not be reported here.
+  // IWYU: IndirectClass is...*indirect.h
+  IndirectMethod<IndirectClass>::Intermediate intermediate;
+  // IWYU: IndirectClass is...*indirect.h
+  intermediate.Method();
+
+  // Reporting IndirectClass here would be redundant because the explicit
+  // specialization definition should already provide it for its field.
+  ExplSpecTpl<IndirectClass> expl_spec;
 }
 
 /**** IWYU_SUMMARY
@@ -149,6 +188,7 @@ tests/cxx/template_member_functions.cc should remove these lines:
 
 The full include-list for tests/cxx/template_member_functions.cc:
 #include "tests/cxx/indirect.h"  // for IndirectClass, IndirectTemplate
-#include "tests/cxx/template_member_functions-direct.h"  // for ProvidingTplUsingInDtor, TplGetTplUsingInDtorDefArgProviding
+#include "tests/cxx/template_member_functions-direct.h"  // for GetTplUsingInDtorProviding, ProvidingTplUsingInDtor, TplGetTplUsingInDtorDefArgProviding, twiesicii
+template <typename> class ExplSpecTpl;  // lines XX-XX+1
 
 ***** IWYU_SUMMARY */
