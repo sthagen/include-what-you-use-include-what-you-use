@@ -166,8 +166,6 @@ void Fn() {
   // IWYU: IndirectClass is...*indirect.h
   twiesicii.Fn();
 
-  // TODO: IndirectClass need not be reported here.
-  // IWYU: IndirectClass is...*indirect.h
   IndirectMethod<IndirectClass>::Intermediate intermediate;
   // IWYU: IndirectClass is...*indirect.h
   intermediate.Method();
@@ -175,6 +173,20 @@ void Fn() {
   // Reporting IndirectClass here would be redundant because the explicit
   // specialization definition should already provide it for its field.
   ExplSpecTpl<IndirectClass> expl_spec;
+}
+
+// Test that the instantiated class template is scanned even if it is just
+// the prefix of a specialized member function.
+
+template <typename T>
+struct TplWithArgField {
+  void Fn();
+  T t;
+};
+
+template <>
+// IWYU: IndirectClass is...*indirect.h
+void TplWithArgField<IndirectClass>::Fn() {
 }
 
 /**** IWYU_SUMMARY

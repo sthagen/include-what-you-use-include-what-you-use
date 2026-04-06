@@ -393,12 +393,25 @@ template<typename T> class ValueSaver {
   }
   // The one-arg version just uses the current value as newval.
   explicit ValueSaver(T* p) : ptr_(p), oldval_(*ptr_) { }
+  // Move constructor for factory methods.
+  ValueSaver(ValueSaver&& rhs)
+      : ptr_(rhs.ptr_), oldval_(std::move(rhs.oldval_)) {
+    rhs.reset();
+  }
+  ValueSaver(const ValueSaver&) = delete;
 
-  ~ValueSaver() { *ptr_ = oldval_; }
+  ~ValueSaver() {
+    if (ptr_)
+      *ptr_ = oldval_;
+  }
+
+  void reset() {
+    ptr_ = nullptr;
+  }
 
  private:
   T* const ptr_;
-  const T oldval_;
+  T oldval_;
 };
 
 // An object of this type updates current_ast_node_ to be the given
@@ -644,8 +657,8 @@ TemplateInstantiationData GetTplInstDataForVariable(
     std::function<set<const clang::Type*>(const clang::Type*)> provided_getter);
 
 // If class_decl is instantiated from a class template,
-// returns the decl for that template; otherwise returns class_decl.
-// As an example, consider this code:
+// returns the CXXRecordDecl describing that template; otherwise returns
+// class_decl. As an example, consider this code:
 //    template<class T> class Foo { ... };   // template decl
 //    template<> class Foo<int> { ... };     // explicit specialization
 //    template class Foo<char>;              // note: no body specified
