@@ -596,11 +596,25 @@ void TestNonTemplatesInsideTemplate() {
   // ContainsIndirectClass should already provide it.
   // IWYU: IndirectClass needs a declaration
   (void)sizeof(ContainsIndirectClassIndirectly<IndirectClass>);
-  // TODO: IndirectClass definition should not be reported here.
   // IWYU: IndirectClass needs a declaration
-  // IWYU: IndirectClass is...*indirect.h
   ContainsIndirectClassIndirectly<IndirectClass> ciciic;
 }
+
+// ---------------------------------------------------------------
+
+template <int>
+class IntArgTpl {};
+
+// IWYU: GetInt() is...*-i1.h
+extern IntArgTpl<GetInt()> iat1;
+
+// IWYU: GetInt() is...*-i1.h
+IntArgTpl<GetInt()> GetIntArgTpl();
+
+// No need to report GetInt here: it should be reported where the template
+// arguments are specified.
+auto iat_size = sizeof(iat1);
+auto iat2 = GetIntArgTpl();
 
 // ---------------------------------------------------------------
 
@@ -618,7 +632,7 @@ The full include-list for tests/cxx/template_args.cc:
 #include "tests/cxx/indirect.h"  // for IndirectClass, IndirectTemplate
 #include "tests/cxx/template_args-d1.h"  // for ProvidingAlias
 #include "tests/cxx/template_args-d2.h"  // for HostNonProvidingAlias, HostNonProvidingAliasTpl, IndirectClassNonProviding, NonProvidingAlias, NonProvidingFunctionAlias1, NonProvidingFunctionAlias2, NonProvidingPtrAlias, TplWithMethodWithoutDefNonProviding
-#include "tests/cxx/template_args-i1.h"  // for Class, TplHost, TplInI1
+#include "tests/cxx/template_args-i1.h"  // for Class, GetInt, TplHost, TplInI1
 template <typename F> struct FunctionStruct;  // lines XX-XX
 
 ***** IWYU_SUMMARY */

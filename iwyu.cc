@@ -3815,11 +3815,11 @@ class InstantiatedTemplateVisitor
     }
 
     if (const auto* tpl_spec_type = type->getAs<TemplateSpecializationType>()) {
-      TraverseTemplateSpecializationType(
-          const_cast<TemplateSpecializationType*>(tpl_spec_type), false);
+      TraverseTemplateSpecializationTypeHelper(tpl_spec_type);
     } else if (const auto* record_type = type->getAs<RecordType>()) {
       TraverseRecordTypeHelper(record_type);
     }
+    ReportExplicitInstantiations(type);
   }
 
   void ScanInstantiatedClass(ClassTemplateSpecializationDecl* decl,
@@ -3987,9 +3987,11 @@ class InstantiatedTemplateVisitor
   }
 
   bool TraverseFunctionIfInstantiatedTpl(FunctionDecl* callee,
-                                         const Type* /*parent_type*/,
+                                         const Type* parent_type,
                                          const Expr* /*calling_expr*/) {
     if (!callee || CanIgnoreCurrentASTNode() || CanIgnoreDecl(callee))
+      return true;
+    if (!IsTemplatizedFunctionDecl(callee) && !IsTemplatizedType(parent_type))
       return true;
     return TraverseExpandedTemplateFunctionHelper(callee);
   }
@@ -4015,13 +4017,31 @@ class InstantiatedTemplateVisitor
     return true;
   }
 
+  bool TraverseInstantiatedAliasTemplateHelper(
+      const TemplateSpecializationType* type) {
+    // Alias template instantiations have no corresponding 'TypeLoc's
+    // or specialization declarations like ClassTemplateSpecializationDecl.
+    // In order to have the correct location information in the AST stack,
+    // the alias template declaration is put there before traversing
+    // the underlying type resulting from instantiation.
+    const Decl* decl = TypeToDeclAsWritten(type);
+    ASTNode new_node{decl};
+    CurrentASTNodeUpdater canu{&current_ast_node_, &new_node};
+    current_ast_node_->set_in_forward_declare_context(true);
+    if (ShouldPrintSymbolFromCurrentFile()) {
+      errs() << AnnotatedName(GetKindName(decl)) << PrintablePtr(decl)
+             << PrintableDecl(decl) << "\n";
+    }
+    return TraverseType(type->getAliasedType());
+  }
+
   bool TraverseTemplateSpecializationTypeHelper(
       const TemplateSpecializationType* type) {
     if (CanIgnoreCurrentASTNode())
       return true;
 
     if (type->isTypeAlias())
-      return TraverseType(type->getAliasedType());
+      return TraverseInstantiatedAliasTemplateHelper(type);
 
     ASTNode* ast_node = current_ast_node();
     if (CanForwardDeclareType(ast_node))
