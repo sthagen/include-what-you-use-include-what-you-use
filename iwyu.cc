@@ -90,7 +90,6 @@
 
 #include <cstdio>
 #include <cstdlib>                      // for atoi, exit
-#include <functional>
 #include <map>                          // for map, swap, etc
 #include <memory>                       // for unique_ptr
 #include <set>                          // for set, set<>::iterator, swap
@@ -3606,6 +3605,10 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
     if (blocked_types.count(GetCanonicalType(type)))
       return;
     if (const NamedDecl* decl = TypeToDeclAsWritten(type)) {
+      if (!decl->getIdentifier()) {
+        VERRS(6) << "Ignoring unnamed type: " << PrintableType(type) << "\n";
+        return;
+      }
       decl = GetDefinitionAsWritten(decl);
       VERRS(6) << "(For type " << PrintableType(type) << "):\n";
       IwyuBaseAstVisitor<Derived>::ReportDeclUse(used_loc, decl);
