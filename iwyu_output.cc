@@ -1565,21 +1565,22 @@ void CalculateIwyuForForwardDeclareUse(
   // fact.  Also if it's defined in one of the actual_includes.
   const NamedDecl* dfn_from_desired_includes = nullptr;
   const NamedDecl* dfn_from_actual_includes = nullptr;
+  string desired_hdr_with_dfn;
   for (const NamedDecl* dfn : dfns) {
     vector<string> headers = GlobalIncludePicker().GetMappedPublicHeaders(
         dfn, GetFilePath(use->use_loc()), GetFilePath(dfn));
     for (const string& header : headers) {
-      if (ContainsKey(desired_includes, header))
+      if (ContainsKey(desired_includes, header)) {
         dfn_from_desired_includes = dfn;
+        desired_hdr_with_dfn = header;
+      }
       if (ContainsKey(actual_includes, header))
         dfn_from_actual_includes = dfn;
     }
-    // We ourself are always a 'desired' and 'actual' include (though
-    // only if the definition is visible from the use location).
     if (IsBeforeInSameFile(dfn, use->use_loc())) {
-      dfn_from_desired_includes = dfn;
-      dfn_from_actual_includes = dfn;
-      break;
+      // TODO(bolshakov): this looks like a duplicate of A6 step. Deduplicate.
+      use->set_ignore_use();
+      return;
     }
   }
 
@@ -1598,8 +1599,8 @@ void CalculateIwyuForForwardDeclareUse(
   if (!same_file_decl) {
     for (const NamedDecl* redecl : redecls) {
       if (ContainsKey(associated_includes, GetFileEntry(redecl))) {
-        same_file_decl = redecl;
-        break;
+        use->set_ignore_use();
+        return;
       }
     }
   }
@@ -1612,18 +1613,13 @@ void CalculateIwyuForForwardDeclareUse(
              << " (" << use->PrintableUseLoc() << ") is satisfied by dfn in "
              << PrintableLoc(GetLocation(providing_decl)) << "\n";
     // Mark that this use is another reason we want this header.
-    const string file = GetFilePath(providing_decl);
-    const string quoted_hdr = ConvertToQuotedInclude(file);
-    use->set_suggested_header(quoted_hdr);
+    CHECK_(!desired_hdr_with_dfn.empty());
+    use->set_suggested_header(desired_hdr_with_dfn);
   } else if (same_file_decl) {
     providing_decl = same_file_decl;
     VERRS(6) << "Noting fwd-decl use of " << use->symbol_name()
              << " (" << use->PrintableUseLoc() << ") is declared at "
              << PrintableLoc(GetLocation(providing_decl)) << "\n";
-    // If same_file_decl is actually in an associated .h, mark our use
-    // of that.  No need to map-to-public for associated .h files.
-    if (GetFileEntry(same_file_decl) != GetFileEntry(use->use_loc()))
-      use->set_suggested_header(GetFilePath(same_file_decl));
   }
   if (providing_decl) {
     // Change decl_ to point to this "better" redecl.
