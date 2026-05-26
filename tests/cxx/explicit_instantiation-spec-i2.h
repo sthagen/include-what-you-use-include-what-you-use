@@ -1,4 +1,4 @@
-//===--- 958.h - iwyu test ------------------------------------------------===//
+//===--- explicit_instantiation-spec-i2.h - test input file for iwyu ------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,11 +7,13 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "tests/cxx/explicit_instantiation-template.h"
+
+template <>
+void TplFn<char>();
+
+template <>
+inline char var_tpl<float>;
+
 template <typename T>
-int templFunc();
-
-/**** IWYU_SUMMARY
-
-(tests/bugs/958/958.h has correct #includes/fwd-decls)
-
-***** IWYU_SUMMARY */
+double var_tpl<T*>;

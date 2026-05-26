@@ -8,3 +8,4 @@
 //===----------------------------------------------------------------------===//
 
 #include "tests/cxx/explicit_instantiation-spec-i1.h"
+#include "tests/cxx/explicit_instantiation-spec-i2.h"

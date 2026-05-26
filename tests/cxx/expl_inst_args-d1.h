@@ -1,4 +1,4 @@
-//===--- 958.h - iwyu test ------------------------------------------------===//
+//===--- expl_inst_args-d1.h - iwyu test ----------------------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,11 +7,4 @@
 //
 //===----------------------------------------------------------------------===//
 
-template <typename T>
-int templFunc();
-
-/**** IWYU_SUMMARY
-
-(tests/bugs/958/958.h has correct #includes/fwd-decls)
-
-***** IWYU_SUMMARY */
+#include "tests/cxx/expl_inst_args-i1.h"
