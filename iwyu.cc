@@ -192,6 +192,7 @@ using clang::CXXMethodDecl;
 using clang::CXXNewExpr;
 using clang::CXXOperatorCallExpr;
 using clang::CXXRecordDecl;
+using clang::CXXRewrittenBinaryOperator;
 using clang::CXXTemporaryObjectExpr;
 using clang::CXXTypeidExpr;
 using clang::CallExpr;
@@ -218,7 +219,6 @@ using clang::FriendTemplateDecl;
 using clang::FunctionDecl;
 using clang::FunctionProtoType;
 using clang::FunctionTemplateDecl;
-using clang::UserDefinedLiteral;
 using clang::FunctionType;
 using clang::InitListExpr;
 using clang::LateParsedTemplate;
@@ -246,7 +246,6 @@ using clang::RecordTypeLoc;
 using clang::RecursiveASTVisitor;
 using clang::RedeclarableTemplateDecl;
 using clang::ReferenceType;
-using clang::CXXRewrittenBinaryOperator;
 using clang::Sema;
 using clang::SourceLocation;
 using clang::SourceManager;
@@ -278,6 +277,7 @@ using clang::TypedefType;
 using clang::UnaryExprOrTypeTraitExpr;
 using clang::UnresolvedLookupExpr;
 using clang::UnresolvedSet;
+using clang::UserDefinedLiteral;
 using clang::UsingDecl;
 using clang::UsingDirectiveDecl;
 using clang::UsingShadowDecl;
@@ -2956,6 +2956,12 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
       return true;
     ReportIfReferenceVararg(expr->getArgs(), expr->getNumArgs(),
                             expr->getConstructor());
+    // Implicitly-constructed classes inside aggregate initialization should be
+    // skipped because they should be provided by the aggregate.
+    if (current_ast_node()->template ParentIsA<InitListExpr>() &&
+        expr->getBeginLoc() == expr->getEndLoc()) {
+      return true;
+    }
 
     if (IsAutocastExpr(current_ast_node()))
       HandleAutocastOnCallSite(expr);
@@ -3300,6 +3306,12 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
     return true;
   }
 
+  bool VisitFunctionType(FunctionType*) {
+    if (!current_ast_node()->template ParentIsA<FunctionDecl>())
+      current_ast_node()->set_in_forward_declare_context(true);
+    return true;
+  }
+
   //------------------------------------------------------------
   // Visitors of attributes.
 
@@ -3424,6 +3436,9 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
         // AST node) -- then we're forward-declarable by definition.
         if (IsForwardDecl(parent_decl))
           return true;
+      } else if (const auto* expl_inst =
+                     ast_node->GetParentAs<ExplicitInstantiationDecl>()) {
+        return expl_inst->isExternTemplate();
       }
     }
 
@@ -4482,6 +4497,8 @@ class InstantiatedTemplateVisitor
       }
     }
     if (decl_as_written) {
+      if (const FunctionDecl* dfn = decl_as_written->getDefinition())
+        decl_as_written = dfn;
       FunctionDecl* const daw = const_cast<FunctionDecl*>(decl_as_written);
       nodes_to_ignore_.AddAll(nodeset_getter.GetNodesBelow(daw));
     }
@@ -4502,7 +4519,8 @@ class InstantiatedTemplateVisitor
     VarDecl* decl_as_written = decl->getTemplateInstantiationPattern();
     if (!decl_as_written)  // TODO(bolshakov): could it be null?
       return true;
-    nodes_to_ignore_.AddAll(nodeset_getter.GetNodesBelow(decl_as_written));
+    nodes_to_ignore_.AddAll(
+        nodeset_getter.GetNodesBelow(decl_as_written->getDefinition()));
 
     // This is not TraverseDecl because clang otherwise skips
     // VarTemplateSpecializationDecl as an implicit instantiation
