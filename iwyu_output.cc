@@ -347,6 +347,8 @@ void OneUse::reset_decl(const NamedDecl* decl) {
   decl_ = decl;
   decl_file_ = GetFileEntry(decl);
   decl_filepath_ = GetFilePath(decl);
+  symbol_name_ = internal::GetQualifiedNameAsString(decl);
+  short_symbol_name_ = internal::GetShortNameAsString(decl);
 }
 
 void OneUse::set_full_use() {
@@ -1702,11 +1704,11 @@ void CalculateIwyuForForwardDeclareUse(
 
   // (D2) Mark iwyu violation unless defined in a current #include.
   if (dfn_from_actual_includes) {
-    VERRS(6) << "Ignoring fwd-decl use of " << use->symbol_name()
+    VERRS(6) << "Satisfied fwd-decl use of " << use->symbol_name()
              << " (" << use->PrintableUseLoc() << "): have definition at "
              << PrintableLoc(GetLocation(dfn_from_actual_includes)) << "\n";
   } else if (same_file_decl) {
-    VERRS(6) << "Ignoring fwd-decl use of " << use->symbol_name()
+    VERRS(6) << "Satisfied fwd-decl use of " << use->symbol_name()
              << " (" << use->PrintableUseLoc() << "): have earlier fwd-decl at "
              << PrintableLoc(GetLocation(same_file_decl)) << "\n";
   } else {
@@ -1774,7 +1776,7 @@ void CalculateIwyuForFullUse(OneUse* use,
 
   // (E3) Mark iwyu violation unless in a current #include.
   if (ContainsKey(actual_includes, use->suggested_header())) {
-    VERRS(6) << "Ignoring full use of " << use->symbol_name()
+    VERRS(6) << "Satisfied full use of " << use->symbol_name()
              << " (" << use->PrintableUseLoc() << "): #including dfn from "
              << use->suggested_header() << "\n";
   } else {
