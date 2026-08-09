@@ -1,4 +1,4 @@
-//===--- 1942.h - iwyu test -----------------------------------------------===//
+//===--- canonical_replaces_public-d4.h - test input file for iwyu --------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,13 +7,4 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "f-def_arg.h"
-
-template <typename>
-void f(int);
-
-/**** IWYU_SUMMARY
-
-(tests/bugs/1942/1942.h has correct #includes/fwd-decls)
-
-***** IWYU_SUMMARY */
+#include "tests/cxx/canonical_replaces_public-i1.h"
