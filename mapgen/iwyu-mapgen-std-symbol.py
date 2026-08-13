@@ -42,6 +42,7 @@ COMBINABLE_TYPE_SPECIFIERS = (
     'double',
 )
 DEFINE = 'define'
+INCLUDE = 'include'
 TEXMACRO = re.compile(r'''@
                       \\\w+         # Macro name with a preceding backslash.
                       (\[[\w-]*\])? # Optional argument.
@@ -100,12 +101,10 @@ EXCLUDED_FUNCS = {
 # The specializations defined in different headers differ only in C++20
 # constraints, and hence cannot be distinguished in the mapping. The classes are
 # provided by different headers, and some of the headers provide only forward-
-# declarations, therefore some additional consideration is required.
+# declarations, therefore the mapping has been done in HANDWRITTEN_MAPPING.
 DUPLICATED_CLASSES = {
-    'std::allocator',
     'std::atomic',
     'std::basic_common_reference<:0, :1, :2, :3>',
-    'std::compare_three_way',
     'std::formatter<:0, :1>',
     'std::tm',
     'std::tuple',
@@ -151,20 +150,84 @@ ALIAS_TO_AVOID = 'intmax_t'
 HANDWRITTEN_MAPPING = (
 # Some namespace-scope symbols are not defined in the corresponding header
 # synopses.
-    ('std::hash', 'bitset'),
-    ('std::hash<std::bitset<:0>>', 'bitset'),
-    ('std::hash', 'thread'),
-    ('std::hash<std::thread::id>', 'thread'),
+    ('std::hash', False, 'bitset'),
+    ('std::hash<std::bitset<:0>>', False, 'bitset'),
+    ('std::hash', False, 'thread'),
+    ('std::hash<std::thread::id>', False, 'thread'),
     ('std::print(std::basic_ostream<char, std::char_traits<char>> &, std::basic_format_string<char, std::type_identity<:0>::type...>, :0 &&...)',
+      False,
       'ostream'),
     ('std::println(std::basic_ostream<char, std::char_traits<char>> &, std::basic_format_string<char, std::type_identity<:0>::type...>, :0 &&...)',
+      False,
       'ostream'),
-    ('std::print', 'print'),
-    ('std::println', 'print'),
+    ('std::print', False, 'print'),
+    ('std::println', False, 'print'),
 # libstdc++ defines a literal operator for seconds as a numeric literal operator
 # template despite the <chrono> header synopsis. This may be standardized later.
 # See https://gcc.gnu.org/bugzilla/show_bug.cgi?id=85821.
-    ('std::operator""s()', 'chrono'),
+    ('std::operator""s()', False, 'chrono'),
+
+    ('std::operator>>(std::basic_istream<:0, :1> &, :0 &)', False, 'istream'),
+    ('std::operator>>(std::basic_istream<char, :0> &, unsigned char &)',
+     False,
+     'istream'),
+    ('std::operator>>(std::basic_istream<char, :0> &, signed char &)',
+     False,
+    'istream'),
+    ('std::operator>>(std::basic_istream<:0, :1> &, :0 (&)[:2])',
+     False,
+    'istream'),
+    ('std::operator>>(std::basic_istream<char, :0> &, unsigned char (&)[:1])',
+     False,
+     'istream'),
+    ('std::operator>>(std::basic_istream<char, :0> &, signed char (&)[:1])',
+     False,
+     'istream'),
+# Pre-C++20 stuff:
+    ('std::operator>>(std::basic_istream<:0, :1> &, :0 *)', False, 'istream'),
+    ('std::operator>>(std::basic_istream<char, :0> &, unsigned char *)',
+     False,
+     'istream'),
+    ('std::operator>>(std::basic_istream<char, :0> &, signed char *)',
+     False,
+     'istream'),
+
+    ('std::operator<<(std::basic_ostream<:0, :1> &, :0)', False, 'ostream'),
+    ('std::operator<<(std::basic_ostream<:0, :1> &, char)', False, 'ostream'),
+    ('std::operator<<(std::basic_ostream<char, :0> &, char)', False, 'ostream'),
+    ('std::operator<<(std::basic_ostream<char, :0> &, signed char)',
+     False,
+     'ostream'),
+    ('std::operator<<(std::basic_ostream<char, :0> &, unsigned char)',
+     False,
+     'ostream'),
+    ('std::operator<<(std::basic_ostream<:0, :1> &, const :0 *)',
+     False,
+     'ostream'),
+    ('std::operator<<(std::basic_ostream<:0, :1> &, const char *)',
+     False,
+     'ostream'),
+    ('std::operator<<(std::basic_ostream<char, :0> &, const char *)',
+     False,
+     'ostream'),
+    ('std::operator<<(std::basic_ostream<char, :0> &, const signed char *)',
+     False,
+     'ostream'),
+    ('std::operator<<(std::basic_ostream<char, :0> &, const unsigned char *)',
+     False,
+     'ostream'),
+
+    ('std::atomic', False, 'atomic'),
+    ('std::atomic', True, 'atomic'),
+    ('std::atomic', True, 'memory'),
+
+    ('std::tm', False, 'ctime'),
+    ('std::tm', True, 'ctime'),
+    ('std::tm', True, 'cwchar'),
+
+    ('std::tuple', False, 'tuple'),
+    ('std::tuple', True, 'tuple'),
+    ('std::tuple', True, 'utility'),
 )
 
 def contains_unspec_alias(inp):
@@ -200,6 +263,7 @@ class Parser:
         # found_names is a dictionary that maps symbols to boolean values
         # indicating whether it is a forward-declaration or not.
         self.found_names = {}
+        self.provided_headers = []
 
     def parse(self):
         while self.__cur_pos < len(self.__text):
@@ -288,6 +352,8 @@ class Parser:
         self.skip_spaces()
         if self.__text.startswith(DEFINE, self.__cur_pos):
             self.act_on_define()
+        elif self.__text.startswith(INCLUDE, self.__cur_pos):
+            self.act_on_include()
         else:
             self.skip_till_eol()
 
@@ -302,6 +368,17 @@ class Parser:
         #if found_name and found_name.find('\\') == -1:
         #    self.found_names.append(found_name)
 
+        self.skip_till_eol()
+
+    def act_on_include(self):
+        t = self.__text
+        assert t.startswith(INCLUDE, self.__cur_pos)
+        self.__cur_pos += len(INCLUDE)  # consume 'include'
+        self.skip_spaces()
+        assert t[self.__cur_pos] == '<'
+        filename_start = self.__cur_pos + 1
+        filename_end = t.index('>', filename_start)
+        self.provided_headers.append(t[filename_start:filename_end])
         self.skip_till_eol()
 
     def act_on_namespace(self):
@@ -750,20 +827,23 @@ class Parser:
 def process_synopsis(syn, fwd_decl_header):
     p = Parser(syn, fwd_decl_header)
     p.parse()
-    return p.found_names
+    return p.found_names, p.provided_headers
 
 def process_tex_file(tex_file):
-    res = []
+    symbols_and_headers = []
+    include_map = []
     for m in SYNOPSIS.finditer(tex_file):
         headername = m.group('headername')
         fwd_decl_header = headername == 'iosfwd'
-        symbols = process_synopsis(m.group('code'), fwd_decl_header)
-        res += zip(symbols.items(), repeat(headername))
+        symbols, provided_headers = \
+            process_synopsis(m.group('code'), fwd_decl_header)
+        symbols_and_headers += zip(symbols.items(), repeat(headername))
+        include_map += zip(provided_headers, repeat(headername))
         # Forward-declaration headers should be preferred even for fully used
         # redeclarable names (like typedefs) as the cheapest ones.
         if fwd_decl_header:
             CANONICAL_HEADERS.update(zip(symbols.items(), repeat(headername)))
-    return res
+    return symbols_and_headers, include_map
 
 def print_line(symbol_and_flag, headername, lang):
     escaped = symbol_and_flag[0].replace('"', r'\"')
@@ -776,15 +856,40 @@ def print_line(symbol_and_flag, headername, lang):
         print(f'{{ "symbol": ["{escaped}", "{use_kind}", '
                               f'"<{headername}>", "public"] }},')
 
+def collect_providing_headers(header, providing_header_dict):
+    res = providing_header_dict.get(header, [])
+    for providing in res:
+        res += collect_providing_headers(providing, providing_header_dict)
+    return list(set(res))
+
+def make_dict_transitive(providing_header_dict):
+    for provided in providing_header_dict.keys():
+        providing_header_dict[provided] = \
+            collect_providing_headers(provided, providing_header_dict)
+
 def print_content(std_source_path, lang):
     headers_by_symbol = {}
+    providing_header_map = {}
     for path in sorted(glob.glob(os.path.join(std_source_path, '*.tex'))):
         with open(path, 'r') as f:
-            for symbol, headername in process_tex_file(f.read()):
+            symbols_and_headers, include_map = process_tex_file(f.read())
+            for symbol, headername in symbols_and_headers:
                 headers_by_symbol.setdefault(symbol, []).append(headername)
-    for symbol, headername in HANDWRITTEN_MAPPING:
-        # Currently, all entries in HANDWRITTEN_MAPPING are for full uses.
-        headers_by_symbol.setdefault((symbol, False), []).append(headername)
+            for provided, providing in include_map:
+                providing_header_map.setdefault(provided, []).append(providing)
+    for symbol, flag, headername in HANDWRITTEN_MAPPING:
+        headers_by_symbol.setdefault((symbol, flag), []).append(headername)
+
+    make_dict_transitive(providing_header_map)
+
+    for symbol_and_flag, headernames in headers_by_symbol.items():
+        if symbol_and_flag not in CANONICAL_HEADERS:
+            CANONICAL_HEADERS[symbol_and_flag] = sorted(headernames)[0]
+        providing_headers = []
+        for header in headernames:
+            providing_headers += providing_header_map.get(header, [])
+        headernames += providing_headers
+        headers_by_symbol[symbol_and_flag] = set(headernames)  # Deduplicate.
 
     for symbol_and_flag, headernames in sorted(headers_by_symbol.items()):
         canonical_header = CANONICAL_HEADERS.get(symbol_and_flag)

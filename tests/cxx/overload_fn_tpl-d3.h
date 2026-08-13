@@ -1,4 +1,4 @@
-//===--- 1546.cc - iwyu test ----------------------------------------------===//
+//===--- overload_fn_tpl-d3.h - test input file for iwyu ------------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,16 +7,9 @@
 //
 //===----------------------------------------------------------------------===//
 
-// IWYU_XFAIL
-#include "macro.h"
+namespace ns {
 
-int main() {
-  MY_MACRO();
-  return 0;
-}
+template <typename T, typename U>
+int TplFnDirect(T, U);
 
-/**** IWYU_SUMMARY
-
-(tests/bugs/1546/1546.cc has correct #includes/fwd-decls)
-
-***** IWYU_SUMMARY */
+}  // namespace ns

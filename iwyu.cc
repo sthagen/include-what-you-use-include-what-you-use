@@ -1600,7 +1600,8 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
   // with the warning message that iwyu emits.
   virtual void ReportDeclForwardDeclareUse(SourceLocation used_loc,
                                            const NamedDecl* used_decl,
-                                           const char* comment = nullptr) {
+                                           const char* comment = nullptr,
+                                           UseFlags extra_use_flags = 0) {
     const NamedDecl* target_decl = used_decl;
 
     // Sometimes a shadow decl comes between us and the 'real' decl.
@@ -1614,7 +1615,7 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
     if (CanIgnoreDecl(target_decl))
       return;
 
-    UseFlags use_flags = ComputeUseFlags(current_ast_node());
+    UseFlags use_flags = ComputeUseFlags(current_ast_node()) | extra_use_flags;
 
     // Canonicalize the use location and report the use.
     used_loc = GetCanonicalUseLocation(used_loc, target_decl);
@@ -3015,24 +3016,28 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
           ReportDeclUse(CurrentLoc(), decl);
         // No AddProcessedOverloadLoc here: PublicHeaderIntendsToProvide should
         // already work well at the instantiation site.
-      } else if (!expr->requiresADL()) {
-        // Report any of the decls so as to keep the code compilable. If ADL is
-        // to be applied (i.e. the function name is unqualified), it is allowed
-        // to have no declaration.
-        ReportDeclUse(CurrentLoc(), first_decl);
-        // No AddProcessedOverloadLoc here: even first_decl may be different
-        // when scanning different translation units. It's better to
-        // double-report it on template-defn and instantiation sites than not
-        // to report an actually used decl at all.
+        return true;
+      } else if (expr->requiresADL()) {
+        // If ADL is to be applied (i.e. the function name is unqualified), it
+        // is allowed to have no declaration.
+        return true;
       }
-      return true;
     }
 
+    // Report any of the decls so as to keep the code compilable.
+    // No AddProcessedOverloadLoc here: the expr decls may be different when
+    // scanning different translation units. It's better to double-report on
+    // template-defn and instantiation sites than not to report an actually used
+    // decl at all.
     const FunctionDecl* arbitrary_fn_decl = nullptr;
     for (const NamedDecl* decl : expr->decls()) {
-      // Sometimes a UsingShadowDecl comes between us and the 'real' decl.
-      if (const UsingShadowDecl* using_shadow_decl = DynCastFrom(decl))
+      // Sometimes a UsingShadowDecl comes between us and the 'real' decl. Make
+      // sure we report it before resolving.
+      if (const UsingShadowDecl* using_shadow_decl = DynCastFrom(decl)) {
+        ReportDeclUse(CurrentLoc(), decl, nullptr, UF_None,
+                      /*report_using_decl_only = */ true);
         decl = using_shadow_decl->getTargetDecl();
+      }
       if (const FunctionDecl* fn_decl = DynCastFrom(decl)) {
         arbitrary_fn_decl = fn_decl;
         break;
@@ -3047,8 +3052,10 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
     // end up being the built-in form of the operator.  (Even if the
     // only operator==() we see is in foo.h, we don't need to #include
     // foo.h if the only call to operator== we see is on two integers.)
-    if (!arbitrary_fn_decl || !arbitrary_fn_decl->isOverloadedOperator())
-      ReportDeclUse(CurrentLoc(), first_decl);
+    if (!arbitrary_fn_decl || !arbitrary_fn_decl->isOverloadedOperator()) {
+      ReportDeclUse(CurrentLoc(),
+                    arbitrary_fn_decl ? arbitrary_fn_decl : first_decl);
+    }
     return true;
   }
 
@@ -4029,8 +4036,10 @@ class InstantiatedTemplateVisitor
     }
   }
 
-  void ReportDeclForwardDeclareUse(SourceLocation, const NamedDecl*,
-                                   const char* /*comment*/ = nullptr) override {
+  void ReportDeclForwardDeclareUse(SourceLocation,
+                                   const NamedDecl*,
+                                   const char* /*comment*/ = nullptr,
+                                   UseFlags /*extra_use_flags*/ = 0) override {
     // Forward declarations make sense only when a type is explicitly written.
     // But 'InstantiatedTemplateVisitor' is to traverse implicit template
     // specializations, actually. (Template definitions and explicit
@@ -5135,6 +5144,13 @@ class IwyuAstConsumer
       preprocessor_info().FileInfoFor(CurrentFileEntry())->AddForwardDeclare(
           decl_to_fwd_declare, definitely_keep_fwd_decl);
     }
+    // If class-head-name of the definition has a nested-name-specifier, like
+    // 'class ns::C {};', IWYU should report that a forward-declaration is
+    // required before such definition. At least one should already be present
+    // somewhere, otherwise the code would not compile.
+    if (decl->getQualifier())
+      ReportDeclForwardDeclareUse(CurrentLoc(), decl->getPreviousDecl(),
+                                  nullptr, UF_RedeclUse);
     return Base::VisitTagDecl(decl);
   }
 
