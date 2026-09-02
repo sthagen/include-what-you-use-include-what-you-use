@@ -125,6 +125,7 @@
 #include "clang/Basic/Specifiers.h"
 #include "clang/Basic/BuiltinTraits.h"
 #include "clang/Frontend/CompilerInstance.h"
+#include "clang/Lex/PPCallbacks.h"
 #include "clang/Lex/Preprocessor.h"
 #include "clang/Sema/Ownership.h"
 #include "clang/Sema/Sema.h"
@@ -149,13 +150,7 @@
 // IWYU pragma: no_include "clang/AST/Redeclarable.h"
 // IWYU pragma: no_include "clang/AST/StmtIterator.h"
 // IWYU pragma: no_include "clang/Basic/CustomizableOptional.h"
-// IWYU pragma: no_include "clang/Lex/PPCallbacks.h"
 // IWYU pragma: no_include "llvm/ADT/iterator.h"
-// IWYU pragma: begin_keep
-namespace clang {
-class PPCallbacks;
-}  // namespace clang
-// IWYU pragma: end_keep
 
 namespace clang {
 class FriendDecl;
@@ -227,6 +222,7 @@ using clang::MemberExpr;
 using clang::MemberPointerType;
 using clang::NamedDecl;
 using clang::NamespaceAliasDecl;
+using clang::NamespaceDecl;
 using clang::NestedNameSpecifier;
 using clang::NestedNameSpecifierLoc;
 using clang::OpaqueValueExpr;
@@ -1521,8 +1517,6 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
               GetFileEntry(call_expr), GetFileEntry(*fn_redecl))) {
         continue;
       }
-      if (fn_redecl->isThisDeclarationADefinition() && !IsInHeader(*fn_redecl))
-        continue;
       for (const Type* type : autocast_types) {
         const set<const Type*> components =
             GetProvidedTypes(type, GetLocation(*fn_redecl));
@@ -3472,6 +3466,9 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
           continue;
         }
       }
+      // Source file declarations should not provide more than actually needed.
+      if (!IsInHeader(loc))
+        continue;
       const Type* canonical = GetCanonicalType(component);
       if (!CodeAuthorWantsJustAForwardDeclare(canonical, loc))
         retval.insert(canonical);
@@ -5050,6 +5047,26 @@ class IwyuAstConsumer
 
   // --- Visitors of types derived from Decl.
 
+  bool VisitDecl(Decl* decl) {
+    KeepIncludeIfEmbedded();
+    return Base::VisitDecl(decl);
+  }
+
+  bool VisitStmt(Stmt* stmt) {
+    KeepIncludeIfEmbedded();
+    return Base::VisitStmt(stmt);
+  }
+
+  bool VisitType(Type* type) {
+    KeepIncludeIfEmbedded();
+    return Base::VisitType(type);
+  }
+
+  bool VisitTemplateArgumentLoc(const TemplateArgumentLoc& arg) {
+    KeepIncludeIfEmbedded();
+    return Base::VisitTemplateArgumentLoc(arg);
+  }
+
   bool VisitNamespaceAliasDecl(NamespaceAliasDecl* decl) {
     if (CanIgnoreCurrentASTNode())
       return true;
@@ -5205,6 +5222,14 @@ class IwyuAstConsumer
     return Base::VisitClassTemplateSpecializationDecl(decl);
   }
 
+  bool TraverseVarDecl(VarDecl* decl) {
+    // Only non-template variables and explicit specializations should be
+    // traversed. InstantiatedTemplateVisitor handles the rest.
+    if (isTemplateInstantiation(decl->getTemplateSpecializationKind()))
+      return true;
+    return Base::TraverseVarDecl(decl);
+  }
+
   bool VisitVarTemplateSpecializationDecl(VarTemplateSpecializationDecl* decl) {
     if (CanIgnoreCurrentASTNode())
       return true;
@@ -5216,7 +5241,7 @@ class IwyuAstConsumer
   bool VisitExplicitInstantiationDecl(ExplicitInstantiationDecl* decl) {
     if (CanIgnoreCurrentASTNode())
       return true;
-    const NamedDecl* spec = decl->getSpecialization();
+    NamedDecl* spec = decl->getSpecialization();
     if (const auto* fn_spec = dyn_cast<FunctionDecl>(spec)) {
       if (decl->isExternTemplate()) {
         // Explicit instantiation declarations require only any function
@@ -5244,7 +5269,7 @@ class IwyuAstConsumer
               data.provided_types);
         }
       }
-    } else if (const auto* var_tpl_spec =
+    } else if (auto* var_tpl_spec =
                    dyn_cast<VarTemplateSpecializationDecl>(spec)) {
       if (decl->isExternTemplate()) {
         // An explicit specialization (if present) should be reported even
@@ -5253,14 +5278,20 @@ class IwyuAstConsumer
         ReportDeclUse(CurrentLoc(), var_tpl_spec);
       } else {
         ReportDeclUse(CurrentLoc(), spec, nullptr, UF_InstantiationPattern);
-        // TODO(bolshakov): report required template arguments.
+        TemplateInstantiationData data = GetTplInstData(decl);
+        instantiated_template_visitor_.ScanInstantiatedVariable(
+            var_tpl_spec->getDefinition(), current_ast_node(), data.resugar_map,
+            data.provided_types);
       }
-    } else if (const auto* var_spec = dyn_cast<VarDecl>(spec)) {
+    } else if (auto* var_spec = dyn_cast<VarDecl>(spec)) {
       // Static data member of a template class. The type cannot be changed, and
       // there should not be any redeclaration but the definition.
       if (!decl->isExternTemplate()) {
         ReportDeclUse(CurrentLoc(), var_spec);
-        // TODO(bolshakov): report required template arguments.
+        TemplateInstantiationData data = GetTplInstData(decl);
+        instantiated_template_visitor_.ScanInstantiatedVariable(
+            var_spec->getDefinition(), current_ast_node(), data.resugar_map,
+            data.provided_types);
       }
     }
     // TODO(bolshakov): handle class template and member class instantiations.
@@ -5302,7 +5333,9 @@ class IwyuAstConsumer
   // This is called from Traverse*() because Visit*()
   // can't call HandleFunctionCall().
   bool HandleAliasedClassMethods(TypedefNameDecl* decl) {
-    if (CanIgnoreCurrentASTNode())
+    // If a typedef is defined in a source file (as opposed to headers), it is
+    // already known how it is used. Providing more than needed makes no sense.
+    if (CanIgnoreCurrentASTNode() || !IsInHeader(decl))
       return true;
 
     const Type* underlying_type = decl->getUnderlyingType().getTypePtr();
@@ -5483,11 +5516,20 @@ class IwyuAstConsumer
       if (!IsCallExprFunRef(current_ast_node()))
         ReportDeclUse(CurrentLoc(), expr->getDecl());
     }
-    if (auto* var_decl =
-            dyn_cast<VarTemplateSpecializationDecl>(expr->getDecl())) {
+    if (auto* var_decl = dyn_cast<VarDecl>(expr->getDecl())) {
       if (!IsImplicitInstantiation(var_decl))
         return Base::VisitDeclRefExpr(expr);
-      TemplateInstantiationData data = GetTplInstData(var_decl, expr);
+      TemplateInstantiationData data;
+      if (auto* var_tpl = dyn_cast<VarTemplateSpecializationDecl>(var_decl))
+        data = GetTplInstData(var_tpl, expr);
+      if (expr->getQualifier().getKind() == NestedNameSpecifier::Kind::Type) {
+        const Type* parent_type = expr->getQualifier().getAsType();
+        InsertInto(GetTplInstData(parent_type), &data);
+        InsertAllInto(GetProvidedTypeComponents(parent_type),
+                      &data.provided_types);
+      }
+      if (VarDecl* defn = var_decl->getDefinition())
+        var_decl = defn;
       instantiated_template_visitor_.ScanInstantiatedVariable(
           var_decl, current_ast_node(), data.resugar_map, data.provided_types);
     }
@@ -5832,6 +5874,29 @@ class IwyuAstConsumer
   }
 
  private:
+  // This is to keep includes under non-top-level declarations and other AST
+  // nodes, like in this case:
+  //
+  // int arr[] = {
+  // #include "array_items.h"
+  // };
+  void KeepIncludeIfEmbedded() const {
+    const ASTNode* parent = current_ast_node()->parent();
+    if (!parent || parent->IsA<TranslationUnitDecl>() ||
+        parent->IsA<NamespaceDecl>()) {
+      return;
+    }
+    OptionalFileEntryRef current_file =
+        GetFileEntry(GetInstantiationLoc(CurrentLoc()));
+    OptionalFileEntryRef parent_file =
+        GetFileEntry(GetInstantiationLoc(parent->GetLocation()));
+    if (current_file != parent_file) {
+      preprocessor_info()
+          .FileInfoFor(parent_file)
+          ->ReportKnownDesiredFile(current_file);
+    }
+  }
+
   set<const Type*> GetProvidedTypeComponents(const Type* type) const {
     set<const Type*> res;
     const Type* desugared_until_typedef_or_tpl = Desugar(type);
@@ -5853,6 +5918,11 @@ class IwyuAstConsumer
 
   void CollectProvidedByDefaultTplArg(SourceLocation template_loc,
                                       TemplateInstantiationData* data) const {
+    // Only declarations in headers can provide. In source files, it is already
+    // known how the template is used, hence default arguments should be
+    // reported at instantiation sites if actually needed.
+    if (!IsInHeader(template_loc))
+      return;
     for (auto [canonical, sugared] : data->resugar_map) {
       if (!sugared) {  // This designates a default argument.
         if (const NamedDecl* decl =
@@ -5882,8 +5952,12 @@ class IwyuAstConsumer
     // Couldn't files containing other declarations (like primary template
     // redeclarations or explicit specializations or instantiations) provide
     // definitions for default args?
-    if (const Decl* defn = GetDefinitionAsWritten(TypeToDeclAsWritten(type)))
+    // 'type' may be a typedef, so GetCanonicalType is needed to get
+    // the class template.
+    if (const Decl* defn = GetDefinitionAsWritten(
+            TypeToDeclAsWritten(GetCanonicalType(type)))) {
       CollectProvidedByDefaultTplArg(defn->getLocation(), &ret);
+    }
     return ret;
   }
 
@@ -5933,15 +6007,18 @@ class IwyuAstConsumer
 
   pair<bool, const char*> CanBeProvidedTypeComponent(
       const ASTNode* node) const {
+    // No point in author-intent analysis in source files or for builtins.
+    if (!IsInHeader(node->GetLocation()))
+      return pair(false, nullptr);
+
     if (node->HasAncestorOfType<TypedefNameDecl>() ||
         node->HasAncestorOfType<TemplateTypeParmDecl>()) {
       return pair(true, nullptr);
     }
 
     if (const FunctionDecl* decl = node->GetAncestorAs<FunctionDecl>()) {
-      // No point in author-intent analysis of function definitions
-      // in source files, or for builtins, or for friend declarations.
-      if (!IsInHeader(decl) || IsFriendDecl(decl))
+      // No point in author-intent analysis for friend function declarations.
+      if (IsFriendDecl(decl))
         return pair(false, nullptr);
       if (const auto* method = dyn_cast<CXXMethodDecl>(decl)) {
         // Only the primary (least derived) declaration can provide types.

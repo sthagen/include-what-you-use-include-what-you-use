@@ -1,4 +1,4 @@
-//===--- 1181.cc - iwyu test ----------------------------------------------===//
+//===--- keep_embedded_include-d1.h - test input file for iwyu ------------===//
 //
 //                     The LLVM Compiler Infrastructure
 //
@@ -7,14 +7,14 @@
 //
 //===----------------------------------------------------------------------===//
 
-// IWYU_XFAIL
-
-#include "1181.h"
-enum class color { RED = 2 };
-enum_data<color> d;
+Item1 =
+#include "tests/cxx/keep_embedded_include-d3.h"
+,
+Item2,
+Item3
 
 /**** IWYU_SUMMARY
 
-(tests/bugs/1181/1181.cc has correct #includes/fwd-decls)
+(tests/cxx/keep_embedded_include-d1.h has correct #includes/fwd-decls)
 
 ***** IWYU_SUMMARY */
