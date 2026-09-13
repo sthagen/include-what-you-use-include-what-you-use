@@ -493,7 +493,8 @@ class BaseAstVisitor : public RecursiveASTVisitor<Derived> {
     return Base::TraverseNestedNameSpecifierLoc(nns_loc);
   }
 
-  bool TraverseTemplateName(TemplateName template_name) {
+  bool TraverseTemplateName(TemplateName template_name,
+                            bool traverse_qualifier = true) {
     if (template_name.isNull())
       return true;
     ASTNode node(&template_name);
@@ -504,7 +505,7 @@ class BaseAstVisitor : public RecursiveASTVisitor<Derived> {
     }
     if (!this->getDerived().VisitTemplateName(template_name))
       return false;
-    return Base::TraverseTemplateName(template_name);
+    return Base::TraverseTemplateName(template_name, traverse_qualifier);
   }
 
   bool TraverseTemplateArgument(const TemplateArgument& arg) {
@@ -5539,7 +5540,9 @@ class IwyuAstConsumer
   bool VisitConceptReference(ConceptReference* concept_ref) {
     if (CanIgnoreCurrentASTNode())
       return true;
-    ReportDeclUse(CurrentLoc(), concept_ref->getNamedConcept());
+    if (const TemplateDecl* concept_decl =
+            concept_ref->getNamedConcept().getAsTemplateDecl())
+      ReportDeclUse(CurrentLoc(), concept_decl);
     // TODO(bolshakov): analyze type parameter usage.
     return Base::VisitConceptReference(concept_ref);
   }
