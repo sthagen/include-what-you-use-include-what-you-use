@@ -1903,6 +1903,10 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
       case clang::CK_HLSLMatrixTruncation:
         break;
 
+      // Ignore Clang/GCC vector extension conversions
+      case clang::CK_VectorSplat:
+        break;
+
       // Ignore non-ptr-to-ptr casts.
       case clang::CK_ArrayToPointerDecay:
       case clang::CK_BooleanToSignedIntegral:
@@ -1949,7 +1953,6 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
       case clang::CK_CopyAndAutoreleaseBlockObject:
       case clang::CK_CPointerToObjCPointerCast:
       case clang::CK_ObjCObjectLValueCast:
-      case clang::CK_VectorSplat:
         CHECK_UNREACHABLE_(
             "TODO(csilvers): for objc and clang lang extensions");
         break;
@@ -2218,6 +2221,7 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
         // if HLSL is supported.
         return true;
       case TypeTrait::BTT_IsSame:
+      case TypeTrait::BTT_TypeOrder:
         return true;
       case TypeTrait::BTT_IsAssignable:
       case TypeTrait::BTT_IsNothrowAssignable:
@@ -3458,12 +3462,10 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
       }
       if (const auto* tpl_spec_type =
               dyn_cast<TemplateSpecializationType>(component)) {
-        const NamedDecl* decl = TypeToDeclAsWritten(tpl_spec_type);
-        if (const auto* al_tpl_decl =
-                dyn_cast_or_null<TypeAliasTemplateDecl>(decl)) {
-          InsertAllInto(
-              GetAliasTemplateProvidedTypes(tpl_spec_type, al_tpl_decl),
-              &retval);
+        if (const TypeAliasTemplateDecl* decl =
+                GetAsTypeAliasTemplateDecl(tpl_spec_type)) {
+          InsertAllInto(GetAliasTemplateProvidedTypes(tpl_spec_type, decl),
+                        &retval);
           continue;
         }
       }
@@ -3670,16 +3672,15 @@ class IwyuBaseAstVisitor : public BaseAstVisitor<Derived> {
     if (const auto* template_spec_type =
             type->getAs<TemplateSpecializationType>()) {
       if (template_spec_type->isTypeAlias()) {
-        const Type* type = template_spec_type->getAliasedType().getTypePtr();
-        const NamedDecl* decl = TypeToDeclAsWritten(template_spec_type);
-        if (const auto* al_tpl_decl = dyn_cast<TypeAliasTemplateDecl>(decl)) {
-          InsertAllInto(
-              GetAliasTemplateProvidedTypes(template_spec_type, al_tpl_decl),
-              &blocked_types);
+        if (const TypeAliasTemplateDecl* decl =
+                GetAsTypeAliasTemplateDecl(template_spec_type)) {
+          InsertAllInto(GetAliasTemplateProvidedTypes(template_spec_type, decl),
+                        &blocked_types);
         }
         // Builtin templates like __type_pack_element<0, Class*> are marked as
         // type alias substitutions, but have no associated alias template
         // decl, so report either way.
+        const Type* type = template_spec_type->getAliasedType().getTypePtr();
         ReportTypeUseInternal(used_loc, type, blocked_types, deref_kind);
         return;
       }
@@ -5164,11 +5165,15 @@ class IwyuAstConsumer
     }
     // If class-head-name of the definition has a nested-name-specifier, like
     // 'class ns::C {};', IWYU should report that a forward-declaration is
-    // required before such definition. At least one should already be present
-    // somewhere, otherwise the code would not compile.
-    if (decl->getQualifier())
-      ReportDeclForwardDeclareUse(CurrentLoc(), decl->getPreviousDecl(),
-                                  nullptr, UF_RedeclUse);
+    // required before such definition.
+    if (decl->getQualifier()) {
+      const TagDecl* prev = decl->getPreviousDecl();
+      // For class template specializations, there may be no previous
+      // declaration. Fwd-decl uses of their primary templates are reported from
+      // VisitClassTemplateSpecializationDecl.
+      if (prev)
+        ReportDeclForwardDeclareUse(CurrentLoc(), prev, nullptr, UF_RedeclUse);
+    }
     return Base::VisitTagDecl(decl);
   }
 
@@ -5891,9 +5896,10 @@ class IwyuAstConsumer
     }
     OptionalFileEntryRef current_file =
         GetFileEntry(GetInstantiationLoc(CurrentLoc()));
-    OptionalFileEntryRef parent_file =
-        GetFileEntry(GetInstantiationLoc(parent->GetLocation()));
-    if (current_file != parent_file) {
+    OptionalFileEntryRef parent_file = {};
+    for (; !parent_file && parent; parent = parent->parent())
+      parent_file = GetFileEntry(GetInstantiationLoc(parent->GetLocation()));
+    if (current_file != parent_file && parent_file) {
       preprocessor_info()
           .FileInfoFor(parent_file)
           ->ReportKnownDesiredFile(current_file);
@@ -5911,9 +5917,10 @@ class IwyuAstConsumer
     } else if (const auto* tpl_spec =
                    dyn_cast_or_null<TemplateSpecializationType>(
                        desugared_until_typedef_or_tpl)) {
-      const NamedDecl* decl = TypeToDeclAsWritten(tpl_spec);
-      if (const auto* al_tpl_decl = dyn_cast<TypeAliasTemplateDecl>(decl))
-        res = GetAliasTemplateProvidedTypes(tpl_spec, al_tpl_decl);
+      if (const TypeAliasTemplateDecl* decl =
+              GetAsTypeAliasTemplateDecl(tpl_spec)) {
+        res = GetAliasTemplateProvidedTypes(tpl_spec, decl);
+      }
     }
     InsertAllInto(GetProvidedByTplArg(desugared_until_typedef_or_tpl), &res);
     return res;
